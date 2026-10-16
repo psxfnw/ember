@@ -1,79 +1,171 @@
-# `ember` — starter skeleton (Lab 1)
+# ember — віртуальний комп'ютер на C++17
 
-Copy this folder to a repository of your own, `git init`, and start from **M1** of
-[Lab 01](../lab-01-a-box-of-bytes.md). It builds and runs as-is.
+Навчальний проєкт курсу «Основи програмування»: від пам'яті на 4096 байтів до процесора й асемблера.
+Поточний етап — **Lab 01, Advanced**: перевірений доступ до пам'яті, hex/ASCII-дамп, чотири представлення байта, inc та set16.
 
-```bash
+## Збірка й запуск
+
+Перевірено в Ubuntu 26.04 / WSL2, x86_64, GCC 15.2.0, CMake 4.2.3.
+На Windows відкрийте проєкт через VS Code WSL; команди виконуйте в Ubuntu.
+
+~~~bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
 cmake --build build
 ./build/ember
-```
+~~~
 
-## Why a skeleton exists
+C++17, -Wall -Wextra -Werror; у Debug увімкнені -fsanitize=address,undefined, -fno-omit-frame-pointer і -g.
+Попередження та санітайзери не вимкнені.
 
-Lab 1 is about **bytes and types**. It is not about `while` loops, splitting a
-string into words, or `std::setw` — you meet those properly in Labs 4, 5 and 7.
-So the parts that need them are given to you, fully written and commented. You
-read those. You write the four small things that *are* Lab 1.
-
-## Given — read it, don't rewrite it
-
-| File | What it does |
+~~~text
+ember 0.1 - 4096 bytes of memory you can see. Type `help`.
+~~~
+| Команда | Дія |
 |---|---|
-| `CMakeLists.txt` | C++17, `-Wall -Wextra -Werror`, ASan + UBSan on Debug |
-| `src/main.cpp` | the prompt: read a line, split it into words, call your functions |
-| `src/memory.hpp` | `Byte`, `MEM_SIZE`, `struct Memory` — the box |
-| `src/dump.hpp` | the two declarations |
-| `src/dump.cpp` → `dump()` | the hex dump loop |
+| dump | усі 4096 байтів, по 16 на рядок, hex та ASCII |
+| get addr | байт десятково, hex, binary та символом |
+| set addr value | запис 0–255 |
+| inc addr | збільшення за модулем 256 |
+| set16 addr value | запис 0–65535 молодшим байтом уперед |
+| help / quit | допомога та завершення |
 
-## Yours — four `TODO(lab-01)` markers
+Адреси байта — 0–4095, двобайтового запису — 0–4094. Числа десяткові або з префіксом 0x.
+Некоректний set16 не змінює навіть перший байт.
 
-```bash
-grep -rn "TODO(lab-01)" src/
-```
+## Lab 01 — Коробка байтів
 
-| # | Where | The job |
-|---|---|---|
-| 1 | `memory.cpp` → `mem_get` | return the byte, or 0 if the address is outside the box |
-| 2 | `memory.cpp` → `mem_set` | write the byte, or return `false` if the address is outside |
-| 3 | `dump.cpp` → the ASCII gutter | print the character when the byte is printable |
-| 4 | `dump.cpp` → `show_byte` | one byte, four views |
+Використано [офіційний starter](https://github.com/rmalkevy/Programming-Practice-Projects/tree/main/courses/programming-fundamentals/starter).
+Memory містить Byte data[4096]{}. Byte — std::uint8_t, один 8-бітний байт у цьому середовищі.
+Ширина int не задає ширину клітинки VM.
 
-When all four are done:
+### Розміри типів — виміряні Notes §1
 
-```txt
-ember> set 0 65
-ember> set 1 66
-ember> get 0
+~~~text
+1 4 4 8 8
+1 2
+~~~
+| Тип | Байти |
+|---|---:|
+| char / uint8_t | 1 |
+| uint16_t | 2 |
+| int / float | 4 |
+| double / void* | 8 |
+
+### M2–M3: початкові нулі й представлення
+
+Перші три рядки свіжого дампа:
+
+~~~text
+0000  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................|
+0010  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................|
+0020  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................|
+~~~
+Фрагмент фактичного офіційного сценарію checks/lab-01.txt:
+
+~~~text
 65  0x41  0b01000001  'A'
-ember> dump
+66  0x42  0b01000010  'B'
+0  0x00  0b00000000  '.'
+address 5000 is outside 0..4095
+a byte is 0..255, got 300
 0000  41 42 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |AB..............|
-```
+~~~
+ASCII 0x20–0x7e показується символом, решта — крапкою.
 
-That is M2 and M3 of Lab 1. M4 (the three deliberate breakages) is in the lab.
+### M4: чотири досліди
 
-Until you implement `mem_set`, `set` accepts everything and stores nothing, and
-`get` prints `show_byte: not implemented yet`. That is the starting state, not a
-bug.
+**1. Загортання.** Команди set 0 255, get 0, inc 0, get 0:
 
-## Later labs
+~~~text
+ember 0.1 - 4096 bytes of memory you can see. Type `help`.
+255  0xff  0b11111111  '.'
+0  0x00  0b00000000  '.'
+~~~
+Після додавання у ширшому цілому перетворення до uint8_t лишає молодші 8 бітів: 256 mod 256 = 0.
+Знаковий int такої гарантії не має. Окремий фрагмент Notes §2, зібраний з ASan+UBSan:
 
-You keep this repository for all eight labs. Every lab adds one `else if` branch
-to the dispatcher in `main.cpp` and one or two new files next to these.
+~~~text
+0
+-2147483648
+/home/psxfnw/pf-private/ember/experiments/lab-01/overflow.cpp:4:166: runtime error: signed integer overflow: 2147483647 + 1 cannot be represented in type 'int'
+~~~
+Цей навмисно неправильний фрагмент не входить до готового застосунку.
 
----
+**2. Дроби (Notes §3).**
 
-## Українською
+~~~text
+0.3
+false
+0.30000000000000004
+~~~
+0.1 і 0.2 не мають скінченного двійкового представлення. Звичайний друк округлює до 0.3,
+точніше форматування показує похибку; точне порівняння з 0.3 дає false. Адреси й байти зберігаємо цілими.
 
-Скопіюйте цю теку у свій репозиторій — вона вже збирається й запускається.
+**3. C-рядок.** Після set 0 65, set 1 66, set 2 0:
 
-Lab 1 — про **байти й типи**, а не про цикли, розбір рядка на слова чи
-форматування виводу (це Labs 4, 5, 7). Тому все, що потребує ще не пройденого,
-вам **дано** — з коментарями, щоб читати. Ви пишете чотири маленькі речі, які й
-є Lab 1: `mem_get`, `mem_set`, ASCII-колонку в дампі та `show_byte`.
+~~~text
+0000  41 42 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |AB..............|
+~~~
+Байти 41 42 00 — A, B та завершувач C-рядка \0. Нуль — не цифра '0' з кодом 48.
 
-Знайти свою роботу: `grep -rn "TODO(lab-01)" src/`.
+**4. Пам'ять без {}.** В ізольованій копії прибрано {} з масиву, копію реально перезібрано
+з ASan+UBSan і виконано dump. Початок:
 
-Якщо C++ бачите вперше — спочатку
-[C++ за годину](../cpp-survival-kit.notes.md), потім
-[інструменти й git](../setup.notes.md).
+~~~text
+0000  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................|
+0010  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................|
+0020  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................|
+~~~
+Перші байти цього запуску були нульовими. Це не гарантує ініціалізацію:
+читання невизначених значень у C++17 некоректне, а ASan/UBSan не є універсальним детектором таких читань.
+Робоча версія має {}; експериментальна копія не входить до проєкту.
+
+Notes §4: число, символ і ділення:
+
+~~~text
+65 65 65 A
+B
+2 2.5
+~~~
+### Advanced: set16 і порядок байтів
+
+set16 0 0x1234; get 0; get 1:
+
+~~~text
+52  0x34  0b00110100  '4'
+18  0x12  0b00010010  '.'
+~~~
+Дамп:
+
+~~~text
+0000  34 12 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |4...............|
+~~~
+Молодший байт 0x34 за меншою адресою, 0x12 — за наступною. Маска value & 0xff і зсув value >> 8
+задають порядок VM явно, незалежно від порядку хоста.
+.clang-format — LLVM, відступ 4, межа 100; застосовано до всіх cpp/hpp.
+
+### Перевірки
+
+~~~bash
+./build/ember < checks/lab-01.txt
+python3 tests/check_cli.py build/ember
+clang-format --dry-run --Werror src/*.cpp src/*.hpp
+~~~
+
+checks/lab-01.txt — офіційний сценарій; tests/check_cli.py — додаткові перевірки.
+Фактичний результат:
+
+~~~text
+PASS lab-01: official checks, 4096 zero bytes, boundaries, atomic set16, all 256 byte views
+~~~
+Позитивні сценарії виконані в Debug з ASan+UBSan без діагностики. Окремий навчальний overflow вище очікувано дає UBSan.
+
+## Структура
+
+- src/memory.* — пам'ять і перевірки меж.
+- src/dump.* — hex/ASCII та чотири представлення.
+- src/main.cpp — наданий диспетчер, доповнений inc і set16.
+- checks/, tests/ — сценарій викладача та додаткові перевірки.
+
+[Завдання Lab 01](https://github.com/rmalkevy/Programming-Practice-Projects/blob/main/courses/programming-fundamentals/lab-01-a-box-of-bytes.md).
+[ISA машини](https://github.com/rmalkevy/Programming-Practice-Projects/blob/main/courses/programming-fundamentals/ISA.uk.md).

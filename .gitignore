@@ -1,7 +1,8 @@
-build/
-.idea/
-.vscode/
+build*/
 *.o
 *.dSYM/
+.idea/
+.vscode/
 scratch
 scratch.cpp
+__pycache__/
