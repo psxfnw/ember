@@ -28,3 +28,8 @@ Byte mem_get(const Memory& mem, std::size_t addr);
 // Write `value` at `addr`. Return false (and change nothing) if `addr` is
 // outside the box. Returning false is how main.cpp knows to print a message.
 bool mem_set(Memory& mem, std::size_t addr, Byte value);
+
+const std::size_t CODE_LO = 0x000, CODE_HI = 0x7FF;
+const std::size_t DATA_LO = 0x800, DATA_HI = 0x9FF;
+std::uint16_t get16(const Memory& mem, std::size_t addr);
+bool set16(Memory& mem, std::size_t addr, std::uint16_t value);

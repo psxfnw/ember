@@ -10,3 +10,5 @@ void dump(const Memory& mem);
 // Print ONE byte four ways: decimal, hex, binary, character.
 // Example for the byte 65:   65  0x41  0b01000001  'A'
 void show_byte(Byte b);
+
+void dump(const void* ptr, std::size_t n);

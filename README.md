@@ -1,7 +1,7 @@
 # ember — віртуальний комп'ютер на C++17
 
 Навчальний проєкт курсу «Основи програмування»: від пам'яті на 4096 байтів до процесора й асемблера.
-Поточний етап — **Lab 02, Advanced**: CPU, побітовий ALU, прапорці, step/regs і дзеркало стану. Lab 01: перевірений доступ до пам'яті, hex/ASCII-дамп, чотири представлення байта, inc та set16.
+Поточний етап — **Lab 03, Advanced**: адресація, H, LOAD/STORE, run, дамп об’єкта. Попередній етап: CPU, побітовий ALU, прапорці, step/regs і дзеркало стану. Lab 01: перевірений доступ до пам'яті, hex/ASCII-дамп, чотири представлення байта, inc та set16.
 
 ## Збірка й запуск
 
@@ -18,7 +18,7 @@ C++17, -Wall -Wextra -Werror; у Debug увімкнені -fsanitize=address,und
 Попередження та санітайзери не вимкнені.
 
 ~~~text
-ember 0.2 - 4096 bytes of memory you can see. Type `help`.
+ember 0.3 - 4096 bytes of memory you can see. Type `help`.
 ~~~
 | Команда | Дія |
 |---|---|
@@ -303,3 +303,225 @@ halted
 PC=2 A=44 B=100 Z=0 N=0 C=1 halted=1
 ~~~
 Додаткова C++-перевірка охопила всі 65536 пар для ADD/SUB/AND/OR/XOR, всі байти унарних операцій, обидва початкові C для INC/DEC, зупинку HALT та межі. Регресія Lab 01 пройшла. Debug ASan+UBSan без діагностики у готовому коді.
+
+## Lab 03 — Адреси, а не імена
+
+Додано get16/set16 у memory.cpp за наданою формою get16 з перевіркою всього двобайтового діапазону.
+Перевірка addr >= MEM_SIZE−1 стоїть до addr+1, тому навіть size_t max не загортається.
+Гостьовий порядок — little-endian; set16 лишився сумісним із Lab 01.
+
+### Нові інструкції ISA
+
+| Опкод | Мнемоніка | Байти | Прапорці |
+|---|---|---:|---|
+| 02 / 03 | OUT / OUTN | 1 | — |
+| 20 / 21 | LOADI A / B, imm8 | 2 | — |
+| 22 / 23 | LOAD A / B, [addr16] | 3 | — |
+| 24 / 25 | STORE [addr16], A / B | 3 | — |
+| 26 / 27 | MOV A,B / MOV B,A | 1 | — |
+| 28 | LOADH H, imm16 | 3 | — |
+| 29 / 2A | LOAD A,[H] / STORE [H],A | 1 | — |
+| 2B / 2C | INCH / DECH | 1 | — |
+
+Нові команди: run, get16 addr, dumpcpu; reg дозволяє h/pc (16-бітні), a/b (8-бітні).
+run має стелю100000 кроків і друкує кількість виконаних кроків.
+instruction_size задає розмір, step перевіряє всі операнди ДО читання.
+Адреса>=4096 зупиняє CPU повідомленням. H — 16-бітний регістр,
+INCH/DECH виконують арифметику modulo65536; звертатися поза пам'яттю це не дозволяє.
+Жодна інструкція пересилання не змінює прапорці.
+
+### Розділені код і дані
+
+Абсолютна програма22 00 08 02 00: LOAD A,[0x800]; OUT; HALT. Дані — ABC і нуль:
+
+~~~text
+A
+steps=3
+PC=5 A=65 B=0 H=0 Z=0 N=0 C=0 halted=1
+0000  22 00 08 02 00 00 00 00 00 00 00 00 00 00 00 00  |"...............|
+0800  41 42 43 00 00 00 00 00 00 00 00 00 00 00 00 00  |ABC.............|
+~~~
+Офіційна програма через H:
+
+~~~text
+ember 0.3 - 4096 bytes of memory you can see. Type `help`.
+AB
+steps=7
+PC=9 A=66 B=0 H=2049 Z=0 N=0 C=0 halted=1
+~~~
+Покрокове трасування:
+
+~~~text
+ember 0.3 - 4096 bytes of memory you can see. Type `help`.
+PC=0 A=0 B=0 H=0 Z=0 N=0 C=0 halted=0
+PC=3 A=0 B=0 H=2048 Z=0 N=0 C=0 halted=0
+PC=4 A=65 B=0 H=2048 Z=0 N=0 C=0 halted=0
+APC=5 A=65 B=0 H=2048 Z=0 N=0 C=0 halted=0
+PC=6 A=65 B=0 H=2049 Z=0 N=0 C=0 halted=0
+PC=7 A=66 B=0 H=2049 Z=0 N=0 C=0 halted=0
+BPC=8 A=66 B=0 H=2049 Z=0 N=0 C=0 halted=0
+PC=9 A=66 B=0 H=2049 Z=0 N=0 C=0 halted=1
+~~~
+LOADH займає3 байти: PC0→3. LOAD A,[H] дає65; INCH змінює H2048→2049;
+друге читання дає66. HALT завершується на PC9.
+
+### Хост і гість
+
+CPU.mem — Memory* хоста, справжня адреса коробки у процесі C++.
+PC/H — uint16_t, адреси гостя. H=0x800 означає mem.data[2048], а не адресу0x800 ОС.
+Збереження вказівника хоста в гостьовому регістрі обрізає адресу й прив'язує програму до запуску.
+Byte*+1 — наступний байт, int*+1 — наступний int.
+Notes §§1–4 і визначений перегляд float через memcpy:
+
+~~~text
+65 65
+66
+10 20 30
+1 4
+8 4 8
+1
+2
+3f800000
+~~~
+Рядки:65/65 і66 через *p; масив10/20/30; крок1 елемент і4 байти; sizeof8/4/8;
+після копії1, після вказівника2; біти1.0f — 3f800000 у цьому середовищі.
+
+### M4: ASan і виправлення
+
+Окрема програма записала за індексом4096 у масив на4096 байтів.
+Збірка C++17, -Wall -Wextra -Werror -fsanitize=address,undefined -g. Фактичний звіт:
+
+~~~text
+/home/psxfnw/pf-private/ember/experiments/lab-03/overflow.cpp:2:129: runtime error: index 4096 out of bounds for type 'unsigned char [4096]'
+/home/psxfnw/pf-private/ember/experiments/lab-03/overflow.cpp:2:130: runtime error: store to address 0x7aac10ff1040 with insufficient space for an object of type 'unsigned char'
+0x7aac10ff1040: note: pointer points here
+ 00 00 00 00  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00  00 00 00 00
+              ^
+=================================================================
+==5448==ERROR: AddressSanitizer: stack-buffer-overflow on address 0x7aac10ff1040 at pc 0x60717a00b517 bp 0x7fff07051460 sp 0x7fff07051450
+WRITE of size 1 at 0x7aac10ff1040 thread T0
+    #0 0x60717a00b516 in main /home/psxfnw/pf-private/ember/experiments/lab-03/overflow.cpp:2
+    #1 0x7eac12a2a600  (/usr/lib/x86_64-linux-gnu/libc.so.6+0x2a600) (BuildId: 066527e430a32768d82741e00b81eebb1a872294)
+    #2 0x7eac12a2a717 in __libc_start_main (/usr/lib/x86_64-linux-gnu/libc.so.6+0x2a717) (BuildId: 066527e430a32768d82741e00b81eebb1a872294)
+    #3 0x60717a00b204 in _start (/home/psxfnw/pf-private/ember/experiments/lab-03/overflow+0x1204) (BuildId: c83b50d52a9a323655d9a8fb77116e2c3c036c33)
+
+Address 0x7aac10ff1040 is located in stack of thread T0 at offset 4160 in frame
+    #0 0x60717a00b2d8 in main /home/psxfnw/pf-private/ember/experiments/lab-03/overflow.cpp:2
+
+  This frame has 2 object(s):
+    [32, 40) 'index' (line 2)
+    [64, 4160) 'data' (line 2) <== Memory access at offset 4160 overflows this variable
+HINT: this may be a false positive if your program uses some custom stack unwind mechanism, swapcontext or vfork
+      (longjmp and C++ exceptions *are* supported)
+SUMMARY: AddressSanitizer: stack-buffer-overflow /home/psxfnw/pf-private/ember/experiments/lab-03/overflow.cpp:2 in main
+Shadow bytes around the buggy address:
+  0x7aac10ff0d80: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x7aac10ff0e00: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x7aac10ff0e80: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x7aac10ff0f00: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x7aac10ff0f80: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+=>0x7aac10ff1000: 00 00 00 00 00 00 00 00[f3]f3 f3 f3 f3 f3 f3 f3
+  0x7aac10ff1080: f3 f3 f3 f3 f3 f3 f3 f3 f3 f3 f3 f3 f3 f3 f3 f3
+  0x7aac10ff1100: f3 f3 f3 f3 f3 f3 f3 f3 f3 f3 f3 f3 f3 f3 f3 f3
+  0x7aac10ff1180: f3 f3 f3 f3 f3 f3 f3 f3 f3 f3 f3 f3 f3 f3 f3 f3
+  0x7aac10ff1200: f3 f3 f3 f3 f3 f3 f3 f3 f3 f3 f3 f3 f3 f3 f3 f3
+  0x7aac10ff1280: f3 f3 f3 f3 f3 f3 f3 f3 f3 f3 f3 f3 f3 f3 f3 f3
+Shadow byte legend (one shadow byte represents 8 application bytes):
+  Addressable:           00
+  Partially addressable: 01 02 03 04 05 06 07
+  Heap left redzone:       fa
+  Freed heap region:       fd
+  Stack left redzone:      f1
+  Stack mid redzone:       f2
+  Stack right redzone:     f3
+  Stack after return:      f5
+  Stack use after scope:   f8
+  Global redzone:          f9
+  Global init order:       f6
+  Poisoned by user:        f7
+  Container overflow:      fc
+  Array cookie:            ac
+  Intra object redzone:    bb
+  ASan internal:           fe
+  Left alloca redzone:     ca
+  Right alloca redzone:    cb
+==5448==ABORTING
+~~~
+Ключове: stack-buffer-overflow, WRITE of size1, main/рядок експерименту.
+У готовому ember перевіряються PC, повний операнд та адреса перед доступом.
+Навмисний баг не входить до проєкту.
+
+### Advanced: довільний дамп та копіювання
+
+dump(const void*,size_t) читає представлення через const unsigned char* і друкує лише n байтів,
+включно з неповним останнім рядком. dumpcpu викликає dump(&cpu,sizeof(cpu)).
+Байтовий перегляд дозволений; це не читання float через int*. Вказівник і padding залежать від запуску:
+
+~~~text
+ember 0.3 - 4096 bytes of memory you can see. Type `help`.
+0000  e0 05 1f d2 d3 75 00 00 00 00 00 00 00 00 00 00  |.....u..........|
+0010  00 00 00 00 00 00 00 00                          |........|
+~~~
+programs/lab-03-copy.txt копіює ABCD із0x800–0x803 у0x810–0x813.
+Використані H-адресація, LOADH/LOAD/STORE, MOV та INCH, без прямого адресного LOAD/STORE.
+H ставиться на джерело, байт зберігається в B, H — на призначення, MOV повертає байт у A, STORE записує.
+Чотири повторення розгорнуті, стрибки будуть у Lab04.
+
+~~~bash
+./build/ember < programs/lab-03-copy.txt
+~~~
+
+Кожен рядок таблиці отриманий з фактичного regs після step:
+| PC до | Опкод | Дія | PC після | A | B | H після |
+|---:|---|---|---:|---:|---:|---:|
+| 0 | 28 | LOADH src | 3 | 0 | 0 | 2048 |
+| 3 | 29 | LOAD A,[H] | 4 | 65 | 0 | 2048 |
+| 4 | 27 | MOV B,A | 5 | 65 | 65 | 2048 |
+| 5 | 28 | LOADH dst | 8 | 65 | 65 | 2064 |
+| 8 | 26 | MOV A,B | 9 | 65 | 65 | 2064 |
+| 9 | 2a | STORE [H],A | 10 | 65 | 65 | 2064 |
+| 10 | 2b | INCH | 11 | 65 | 65 | 2065 |
+| 11 | 28 | LOADH src | 14 | 65 | 65 | 2049 |
+| 14 | 29 | LOAD A,[H] | 15 | 66 | 65 | 2049 |
+| 15 | 27 | MOV B,A | 16 | 66 | 66 | 2049 |
+| 16 | 28 | LOADH dst | 19 | 66 | 66 | 2065 |
+| 19 | 26 | MOV A,B | 20 | 66 | 66 | 2065 |
+| 20 | 2a | STORE [H],A | 21 | 66 | 66 | 2065 |
+| 21 | 2b | INCH | 22 | 66 | 66 | 2066 |
+| 22 | 28 | LOADH src | 25 | 66 | 66 | 2050 |
+| 25 | 29 | LOAD A,[H] | 26 | 67 | 66 | 2050 |
+| 26 | 27 | MOV B,A | 27 | 67 | 67 | 2050 |
+| 27 | 28 | LOADH dst | 30 | 67 | 67 | 2066 |
+| 30 | 26 | MOV A,B | 31 | 67 | 67 | 2066 |
+| 31 | 2a | STORE [H],A | 32 | 67 | 67 | 2066 |
+| 32 | 2b | INCH | 33 | 67 | 67 | 2067 |
+| 33 | 28 | LOADH src | 36 | 67 | 67 | 2051 |
+| 36 | 29 | LOAD A,[H] | 37 | 68 | 67 | 2051 |
+| 37 | 27 | MOV B,A | 38 | 68 | 68 | 2051 |
+| 38 | 28 | LOADH dst | 41 | 68 | 68 | 2067 |
+| 41 | 26 | MOV A,B | 42 | 68 | 68 | 2067 |
+| 42 | 2a | STORE [H],A | 43 | 68 | 68 | 2067 |
+| 43 | 2b | INCH | 44 | 68 | 68 | 2068 |
+| 44 | 00 | HALT | 45 | 68 | 68 | 2068 |
+
+Байти призначення:
+
+~~~text
+PC=45 A=68 B=68 H=2068 Z=0 N=0 C=0 halted=1
+65  0x41  0b01000001  'A'
+66  0x42  0b01000010  'B'
+67  0x43  0b01000011  'C'
+68  0x44  0b01000100  'D'
+~~~
+### Перевірки
+
+~~~bash
+ctest --test-dir build --output-on-failure
+python3 tests/check_machine.py build/ember
+python3 tests/check_cli.py build/ember
+~~~
+
+~~~text
+PASS lab-03: checks 01-03, transfers, sizes, H, truncated operand, invalid address, 16-bit boundary
+~~~
+C++-тест звіряє всі65536 значень get16/set16 на останній парі, відмову на size_t max та незмінність Z/N/C при пересиланнях. Регресія Lab01–02 пройшла; позитивні сценарії без діагностики санітайзерів.

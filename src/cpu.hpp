@@ -27,6 +27,7 @@ struct CPU {
     Memory* mem = nullptr; // де лежить коробка. Що таке `*`, пояснює Lab 3;
                            // поки читайте як «процесор знає, де його пам'ять»
     std::uint16_t pc = 0;  // адреса НАСТУПНОЇ інструкції
+    std::uint16_t h = 0;
     Byte a = 0;
     Byte b = 0;
     Flags f;
@@ -41,3 +42,21 @@ struct Decoded {
     Byte index;
 };
 Decoded decode(Byte op);
+
+const Byte OP_OUT = 0x02;
+const Byte OP_OUTN = 0x03;
+const Byte OP_LOADI_A = 0x20;
+const Byte OP_LOADI_B = 0x21;
+const Byte OP_LOAD_A = 0x22;
+const Byte OP_LOAD_B = 0x23;
+const Byte OP_STORE_A = 0x24;
+const Byte OP_STORE_B = 0x25;
+const Byte OP_MOV_A_B = 0x26;
+const Byte OP_MOV_B_A = 0x27;
+const Byte OP_LOADH = 0x28;
+const Byte OP_LOAD_H = 0x29;
+const Byte OP_STORE_H = 0x2A;
+const Byte OP_INCH = 0x2B;
+const Byte OP_DECH = 0x2C;
+std::size_t instruction_size(Byte op);
+void run(CPU& cpu, std::size_t limit = 100000);

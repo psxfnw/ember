@@ -37,6 +37,9 @@ static void print_help() {
               << "  reg <a|b> <n>     set an 8-bit register\n"
               << "  regs              show CPU state\n"
               << "  step              execute one instruction\n"
+              << "  get16 <addr>      read a little-endian 16-bit value\n"
+              << "  run               execute until HALT (100000 step limit)\n"
+              << "  dumpcpu           inspect CPU object bytes on the host\n"
               << "  help              this list\n"
               << "  quit              leave\n";
 }
@@ -46,7 +49,7 @@ int main() {
     Memory mem; // 4096 bytes, on the stack, zeroed by the {} in memory.hpp
 
     cpu.mem = &mem;
-    std::cout << "ember 0.2 - 4096 bytes of memory you can see. Type `help`.\n";
+    std::cout << "ember 0.3 - 4096 bytes of memory you can see. Type `help`.\n";
 
     std::string line;
     while (true) {
@@ -101,16 +104,34 @@ int main() {
         } else if (cmd == "reg") {
             std::string name, v;
             long value = 0;
-            if (!(words >> name >> v) || !parse_number(v, value) || value < 0 || value > 255)
-                std::cout << "usage: reg <a|b> <0..255>\n";
+            if (!(words >> name >> v) || !parse_number(v, value) || value < 0 || value > 65535)
+                std::cout << "usage: reg <a|b|h|pc> <value>\n";
+            else if ((name == "a" || name == "b") && value > 255)
+                std::cout << "a byte is 0..255\n";
             else if (name == "a")
                 cpu.a = static_cast<Byte>(value);
             else if (name == "b")
                 cpu.b = static_cast<Byte>(value);
+            else if (name == "h")
+                cpu.h = static_cast<std::uint16_t>(value);
+            else if (name == "pc")
+                cpu.pc = static_cast<std::uint16_t>(value);
             else
                 std::cout << "unknown register: " << name << '\n';
         } else if (cmd == "regs") {
             dump_regs(cpu);
+        } else if (cmd == "get16") {
+            std::string a;
+            long addr = 0;
+            if (!(words >> a) || !parse_number(a, addr) || addr < 0 ||
+                static_cast<std::size_t>(addr) >= MEM_SIZE - 1)
+                std::cout << "usage: get16 <0..4094>\n";
+            else
+                std::cout << get16(mem, static_cast<std::size_t>(addr)) << '\n';
+        } else if (cmd == "run") {
+            run(cpu);
+        } else if (cmd == "dumpcpu") {
+            dump(&cpu, sizeof(cpu));
         } else if (cmd == "step") {
             step(cpu);
         } else if (cmd == "inc") {
@@ -135,8 +156,7 @@ int main() {
                 std::cout << "a 16-bit value is 0..65535\n";
             } else {
                 const auto index = static_cast<std::size_t>(addr);
-                mem_set(mem, index, static_cast<Byte>(value & 0xFF));
-                mem_set(mem, index + 1, static_cast<Byte>(value >> 8));
+                set16(mem, index, static_cast<std::uint16_t>(value));
             }
         } else {
             std::cout << "unknown command: " << cmd << " (try `help`)\n";

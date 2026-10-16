@@ -46,6 +46,13 @@ int main() {
     assert(!mem_set(mem, MEM_SIZE, 99));
     assert(!mem_set(mem, std::numeric_limits<std::size_t>::max(), 99));
     assert(mem_get(mem, MEM_SIZE) == 0);
+    for (unsigned value = 0; value < 65536; ++value) {
+        assert(set16(mem, 4094, static_cast<std::uint16_t>(value)));
+        assert(get16(mem, 4094) == value);
+    }
+    assert(!set16(mem, 4095, 12));
+    assert(!set16(mem, std::numeric_limits<std::size_t>::max(), 12));
+    assert(get16(mem, std::numeric_limits<std::size_t>::max()) == 0);
     CPU cpu;
     cpu.mem = &mem;
     cpu.a = 200;
@@ -61,6 +68,18 @@ int main() {
     assert(cpu.halted && cpu.pc == 3);
     step(cpu);
     assert(cpu.pc == 3);
+    CPU transfer;
+    transfer.mem = &mem;
+    transfer.pc = 100;
+    transfer.f = {true, true, true};
+    const Byte data[] = {0x20, 0, 0x21, 7, 0x28, 0, 8, 0x27, 0x2A, 0x2B, 0x2C, 0};
+    for (std::size_t i = 0; i < sizeof(data); ++i)
+        mem_set(mem, 100 + i, data[i]);
+    for (int i = 0; i < 8; ++i) {
+        step(transfer);
+        assert(transfer.f.z && transfer.f.n && transfer.f.c);
+    }
+    assert(transfer.a == 0 && transfer.b == 0 && transfer.h == 2048 && transfer.halted);
     std::cout << "PASS: 65536 operand pairs, all unary values, preserved carry, CPU/HALT/bounds\n";
     Byte v = alu_add(200, 100, f);
     std::cout << "ADD 200 100: result=" << unsigned(v) << " Z=" << f.z << " N=" << f.n
