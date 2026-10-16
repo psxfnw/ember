@@ -1,5 +1,6 @@
 #include "cpu.hpp"
 #include "alu.hpp"
+#include <iomanip>
 #include <iostream>
 Decoded decode(Byte op) { return {static_cast<Byte>((op >> 4) & 15), static_cast<Byte>(op & 15)}; }
 std::size_t instruction_size(Byte op) {
@@ -12,6 +13,11 @@ std::size_t instruction_size(Byte op) {
     case OP_STORE_A:
     case OP_STORE_B:
     case OP_LOADH:
+    case OP_JMP:
+    case OP_JZ:
+    case OP_JNZ:
+    case OP_JC:
+    case OP_JNC:
         return 3;
     default:
         return 1;
@@ -19,6 +25,7 @@ std::size_t instruction_size(Byte op) {
 }
 static void fail(CPU& cpu, const char* message) {
     cpu.halted = true;
+    cpu.faulted = true;
     std::cout << "CPU error: " << message << '\n';
 }
 static bool address_ok(CPU& cpu, std::size_t addr) {
@@ -28,14 +35,19 @@ static bool address_ok(CPU& cpu, std::size_t addr) {
     }
     return true;
 }
+static void unknown(CPU& cpu, Byte op) {
+    cpu.halted = true;
+    cpu.faulted = true;
+    std::cout << "unknown opcode 0x" << std::hex << std::setfill('0') << std::setw(2)
+              << unsigned(op) << std::dec << std::setfill(' ') << '\n';
+}
 void step(CPU& cpu) {
     if (cpu.halted) {
         std::cout << "halted\n";
         return;
     }
     if (cpu.mem == nullptr || cpu.pc >= MEM_SIZE) {
-        cpu.halted = true;
-        std::cout << "PC outside memory or memory not connected\n";
+        fail(cpu, "PC outside memory or memory not connected");
         return;
     }
     const Byte op = mem_get(*cpu.mem, cpu.pc);
@@ -46,6 +58,7 @@ void step(CPU& cpu) {
     }
     const std::uint16_t operand =
         size == 3 ? get16(*cpu.mem, cpu.pc + 1) : (size == 2 ? mem_get(*cpu.mem, cpu.pc + 1) : 0);
+    std::uint16_t next_pc = static_cast<std::uint16_t>(cpu.pc + size);
     const Decoded instruction = decode(op);
     switch (instruction.group) {
     case 0:
@@ -62,11 +75,15 @@ void step(CPU& cpu) {
         case OP_NOP:
             break;
         default:
-            break;
+            unknown(cpu, op);
+            return;
         }
         break;
     case 1:
         switch (op) {
+        case OP_CMP:
+            alu_sub(cpu.a, cpu.b, cpu.f);
+            break;
         case OP_ADD:
             cpu.a = alu_add(cpu.a, cpu.b, cpu.f);
             break;
@@ -98,7 +115,8 @@ void step(CPU& cpu) {
             cpu.a = alu_dec(cpu.a, cpu.f);
             break;
         default:
-            break;
+            unknown(cpu, op);
+            return;
         }
         break;
     case 2:
@@ -143,6 +161,9 @@ void step(CPU& cpu) {
                 return;
             mem_set(*cpu.mem, cpu.h, cpu.a);
             break;
+        case OP_HLOW:
+            cpu.a = static_cast<Byte>(cpu.h & 255);
+            break;
         case OP_INCH:
             cpu.h = static_cast<std::uint16_t>(cpu.h + 1);
             break;
@@ -150,13 +171,44 @@ void step(CPU& cpu) {
             cpu.h = static_cast<std::uint16_t>(cpu.h - 1);
             break;
         default:
-            break;
+            unknown(cpu, op);
+            return;
         }
         break;
-    default:
+    case 3: {
+        bool take = false;
+        switch (op) {
+        case OP_JMP:
+            take = true;
+            break;
+        case OP_JZ:
+            take = cpu.f.z;
+            break;
+        case OP_JNZ:
+            take = !cpu.f.z;
+            break;
+        case OP_JC:
+            take = cpu.f.c;
+            break;
+        case OP_JNC:
+            take = !cpu.f.c;
+            break;
+        default:
+            unknown(cpu, op);
+            return;
+        }
+        if (take) {
+            if (!address_ok(cpu, operand))
+                return;
+            next_pc = operand;
+        }
         break;
     }
-    cpu.pc = static_cast<std::uint16_t>(cpu.pc + size);
+    default:
+        unknown(cpu, op);
+        return;
+    }
+    cpu.pc = next_pc;
     mem_set(*cpu.mem, FLAG_STATUS,
             static_cast<Byte>((cpu.f.z ? 1 : 0) | (cpu.f.n ? 2 : 0) | (cpu.f.c ? 4 : 0)));
 }
@@ -169,6 +221,10 @@ void dump_regs(const CPU& cpu) {
 void run(CPU& cpu, std::size_t limit) {
     std::size_t steps = 0;
     while (!cpu.halted && steps < limit) {
+        if (cpu.breakpoint >= 0 && cpu.pc == static_cast<std::uint16_t>(cpu.breakpoint)) {
+            std::cout << "breakpoint at " << cpu.pc << '\n';
+            break;
+        }
         step(cpu);
         ++steps;
     }

@@ -33,3 +33,5 @@ const std::size_t CODE_LO = 0x000, CODE_HI = 0x7FF;
 const std::size_t DATA_LO = 0x800, DATA_HI = 0x9FF;
 std::uint16_t get16(const Memory& mem, std::size_t addr);
 bool set16(Memory& mem, std::size_t addr, std::uint16_t value);
+
+std::uint16_t find(const Memory& mem, std::uint16_t lo, std::uint16_t hi, Byte needle);

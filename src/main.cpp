@@ -40,6 +40,8 @@ static void print_help() {
               << "  get16 <addr>      read a little-endian 16-bit value\n"
               << "  run               execute until HALT (100000 step limit)\n"
               << "  dumpcpu           inspect CPU object bytes on the host\n"
+              << "  find <lo> <hi> <byte>  search [lo,hi)\n"
+              << "  b <addr|off>      set/clear a breakpoint\n"
               << "  help              this list\n"
               << "  quit              leave\n";
 }
@@ -49,7 +51,7 @@ int main() {
     Memory mem; // 4096 bytes, on the stack, zeroed by the {} in memory.hpp
 
     cpu.mem = &mem;
-    std::cout << "ember 0.3 - 4096 bytes of memory you can see. Type `help`.\n";
+    std::cout << "ember 0.4 - 4096 bytes of memory you can see. Type `help`.\n";
 
     std::string line;
     while (true) {
@@ -128,8 +130,42 @@ int main() {
                 std::cout << "usage: get16 <0..4094>\n";
             else
                 std::cout << get16(mem, static_cast<std::size_t>(addr)) << '\n';
+        } else if (cmd == "b") {
+            std::string value;
+            long addr = 0;
+            if (!(words >> value))
+                std::cout << "usage: b <addr|off>\n";
+            else if (value == "off")
+                cpu.breakpoint = -1;
+            else if (!parse_number(value, addr) || addr < 0 || addr >= static_cast<long>(MEM_SIZE))
+                std::cout << "invalid breakpoint\n";
+            else
+                cpu.breakpoint = static_cast<int>(addr);
+        } else if (cmd == "find") {
+            std::string l, h, v;
+            long lo = 0, hi = 0, value = 0;
+            if (!(words >> l >> h >> v) || !parse_number(l, lo) || !parse_number(h, hi) ||
+                !parse_number(v, value) || lo < 0 || hi < lo || hi > static_cast<long>(MEM_SIZE) ||
+                value < 0 || value > 255)
+                std::cout << "usage: find <0<=lo<=hi<=4096> <byte 0..255>\n";
+            else {
+                const auto found = find(mem, static_cast<std::uint16_t>(lo),
+                                        static_cast<std::uint16_t>(hi), static_cast<Byte>(value));
+                if (found == hi)
+                    std::cout << "not found\n";
+                else
+                    std::cout << "found " << found << " index=" << (found - lo) << '\n';
+            }
         } else if (cmd == "run") {
-            run(cpu);
+            std::string token;
+            long limit = 100000;
+            if (words >> token) {
+                if (!parse_number(token, limit) || limit < 1 || limit > 10000000) {
+                    std::cout << "usage: run [1..10000000]\n";
+                    continue;
+                }
+            }
+            run(cpu, static_cast<std::size_t>(limit));
         } else if (cmd == "dumpcpu") {
             dump(&cpu, sizeof(cpu));
         } else if (cmd == "step") {

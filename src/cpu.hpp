@@ -31,6 +31,8 @@ struct CPU {
     Byte a = 0;
     Byte b = 0;
     Flags f;
+    bool faulted = false;
+    int breakpoint = -1;
     bool halted = false; // після HALT наступні step відмовляють
 };
 
@@ -60,3 +62,11 @@ const Byte OP_INCH = 0x2B;
 const Byte OP_DECH = 0x2C;
 std::size_t instruction_size(Byte op);
 void run(CPU& cpu, std::size_t limit = 100000);
+
+const Byte OP_CMP = 0x1A;
+const Byte OP_HLOW = 0x2D;
+const Byte OP_JMP = 0x30;
+const Byte OP_JZ = 0x31;
+const Byte OP_JNZ = 0x32;
+const Byte OP_JC = 0x33;
+const Byte OP_JNC = 0x34;

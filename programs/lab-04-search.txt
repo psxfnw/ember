@@ -1,0 +1,40 @@
+set 2048 11
+set 2049 22
+set 2050 33
+set 2051 65
+set 2052 44
+set 2053 55
+set 2054 66
+set 2055 77
+set 0 40
+set 1 0
+set 2 8
+set 3 33
+set 4 65
+set 5 41
+set 6 26
+set 7 49
+set 8 21
+set 9 0
+set 10 43
+set 11 45
+set 12 33
+set 13 8
+set 14 26
+set 15 49
+set 16 24
+set 17 0
+set 18 48
+set 19 3
+set 20 0
+set 21 45
+set 22 3
+set 23 0
+set 24 32
+set 25 255
+set 26 3
+set 27 0
+find 2048 2056 65
+run
+regs
+quit

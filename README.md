@@ -1,7 +1,7 @@
 # ember — віртуальний комп'ютер на C++17
 
 Навчальний проєкт курсу «Основи програмування»: від пам'яті на 4096 байтів до процесора й асемблера.
-Поточний етап — **Lab 03, Advanced**: адресація, H, LOAD/STORE, run, дамп об’єкта. Попередній етап: CPU, побітовий ALU, прапорці, step/regs і дзеркало стану. Lab 01: перевірений доступ до пам'яті, hex/ASCII-дамп, чотири представлення байта, inc та set16.
+Поточний етап — **Lab 04, Advanced**: стрибки, CMP, обмежений пошук і breakpoint. Попередній етап: адресація, H, LOAD/STORE, run, дамп об’єкта. Попередній етап: CPU, побітовий ALU, прапорці, step/regs і дзеркало стану. Lab 01: перевірений доступ до пам'яті, hex/ASCII-дамп, чотири представлення байта, inc та set16.
 
 ## Збірка й запуск
 
@@ -18,7 +18,7 @@ C++17, -Wall -Wextra -Werror; у Debug увімкнені -fsanitize=address,und
 Попередження та санітайзери не вимкнені.
 
 ~~~text
-ember 0.3 - 4096 bytes of memory you can see. Type `help`.
+ember 0.4 - 4096 bytes of memory you can see. Type `help`.
 ~~~
 | Команда | Дія |
 |---|---|
@@ -525,3 +525,175 @@ python3 tests/check_cli.py build/ember
 PASS lab-03: checks 01-03, transfers, sizes, H, truncated operand, invalid address, 16-bit boundary
 ~~~
 C++-тест звіряє всі65536 значень get16/set16 на останній парі, відмову на size_t max та незмінність Z/N/C при пересиланнях. Регресія Lab01–02 пройшла; позитивні сценарії без діагностики санітайзерів.
+
+## Lab 04 — Форма керування
+
+З цього етапу кожен невідомий опкод зупиняє CPU: повідомлення unknown opcode 0x..,
+faulted=true, PC залишається на помилковій інструкції. Тихі NOP зі старого етапу прибрано.
+Кожен відомий опкод має case, decode з маскою/зсувом збережено.
+
+| Опкод | Мнемоніка | Байти | Дія |
+|---|---|---:|---|
+| 1A | CMP A,B | 1 | Z/N/C як A−B, A не змінюється |
+| 2D | HLOW | 1 | A=H & 0xff, прапорці незмінні |
+| 30 | JMP addr16 | 3 | завжди |
+| 31 / 32 | JZ / JNZ addr16 | 3 | Z=1 / Z=0 |
+| 33 / 34 | JC / JNC addr16 | 3 | C=1 / C=0 |
+
+Це надані опкоди ISA, власних нових опкодів немає.
+Спочатку next_pc=pc+size; взятий стрибок замінює next_pc на операнд.
+У кінці PC присвоюється ОДИН раз, без додавання3 після стрибка.
+Ціль взятого стрибка перевіряється на межі пам'яті.
+
+run [limit]: за замовчуванням100000, допустимий явний ліміт1...10000000.
+При досягненні ліміту run повертає prompt, CPU не пошкоджується, можна продовжити.
+Фактичний захист від JMP0:
+
+~~~text
+ember 0.4 - 4096 bytes of memory you can see. Type `help`.
+
+steps=100000
+step limit reached (100000)
+PC=0 A=0 B=0 H=0 Z=0 N=0 C=0 halted=0
+~~~
+### Зворотний відлік
+
+| Адреса | Байти | Інструкція |
+|---|---|---|
+| 0000 | 20 03 | LOADI A,3 |
+| 0002 | 03 | loop: OUTN |
+| 0003 | 19 | DEC A |
+| 0004 | 32 02 00 | JNZ loop |
+| 0007 | 00 | HALT |
+
+Рівноцінний для початкового A=3 цикл:
+~~~cpp
+unsigned a = 3;
+while (a > 0) {
+    std::cout << a << ' ';
+    --a;
+}
+~~~
+Фактичний запуск:
+
+~~~text
+ember 0.4 - 4096 bytes of memory you can see. Type `help`.
+3 2 1
+steps=11
+PC=8 A=0 B=0 H=0 Z=1 N=0 C=0 halted=1
+~~~
+| PC до | A до | Z до | PC після | A після | Z після |
+|---:|---:|---:|---:|---:|---:|
+| 0 | 0 | 0 | 2 | 3 | 0 |
+| 2 | 3 | 0 | 3 | 3 | 0 |
+| 3 | 3 | 0 | 4 | 2 | 0 |
+| 4 | 2 | 0 | 2 | 2 | 0 |
+| 2 | 2 | 0 | 3 | 2 | 0 |
+| 3 | 2 | 0 | 4 | 1 | 0 |
+| 4 | 1 | 0 | 2 | 1 | 0 |
+| 2 | 1 | 0 | 3 | 1 | 0 |
+| 3 | 1 | 0 | 4 | 0 | 1 |
+| 4 | 0 | 1 | 7 | 0 | 1 |
+| 7 | 0 | 1 | 8 | 0 | 1 |
+### Лінійний пошук двома способами
+
+find lo hi byte перевіряє піввідкритий діапазон [lo,hi), повертає першу абсолютну адресу й індекс.
+За промаху друкує not found; порожній діапазон допустимий. Відмовляє, якщо lo>hi, hi>4096 або byte>255.
+
+programs/lab-04-search.txt — той самий пошук восьми байтів на0x800 гостем.
+H — поточна адреса; B — needle65; CMP/JZ знаходять збіг.
+Після промаху INCH/HLOW отримують індекс, B тимчасово8, CMP/JZ перевіряють кінець.
+Повернення в loop заново ставить B=65. Успіх друкує0...7, повний промах —255.
+Адреса0x808 не читається, навіть якщо там лежить needle.
+
+| Адреса | Байти | Інструкція |
+|---|---|---|
+| 0000 | 28 00 08 | LOADH H,0x800 |
+| 0003 | 21 41 | loop: LOADI B,65 |
+| 0005 | 29 | LOAD A,[H] |
+| 0006 | 1a | CMP A,B |
+| 0007 | 31 15 00 | JZ found |
+| 000a | 2b | INCH |
+| 000b | 2d | HLOW |
+| 000c | 21 08 | LOADI B,8 |
+| 000e | 1a | CMP A,B |
+| 000f | 31 18 00 | JZ miss |
+| 0012 | 30 03 00 | JMP loop |
+| 0015 | 2d | found: HLOW |
+| 0016 | 03 | OUTN |
+| 0017 | 00 | HALT |
+| 0018 | 20 ff | miss: LOADI A,255 |
+| 001a | 03 | OUTN |
+| 001b | 00 | HALT |
+Успіх та промах, реальні результати обох способів:
+
+~~~text
+ember 0.4 - 4096 bytes of memory you can see. Type `help`.
+found 2051 index=3
+3
+steps=38
+PC=24 A=3 B=65 H=2051 Z=1 N=0 C=0 halted=1
+~~~
+
+~~~text
+ember 0.4 - 4096 bytes of memory you can see. Type `help`.
+not found
+255
+steps=83
+PC=28 A=255 B=8 H=2056 Z=1 N=0 C=0 halted=1
+~~~
+### Advanced: точки зупину
+
+b addr задає одну точку зупину; b off вимикає її. run зупиняється ДО виконання інструкції з цим PC,
+не виставляючи halted. Щоб пройти через неї, виконайте step або вимкніть точку.
+
+~~~text
+ember 0.4 - 4096 bytes of memory you can see. Type `help`.
+3 breakpoint at 3
+
+steps=2
+step limit reached (100000)
+PC=3 A=3 B=0 H=0 Z=0 N=0 C=0 halted=0
+2 1
+steps=8
+PC=8 A=0 B=0 H=0 Z=1 N=0 C=0 halted=1
+~~~
+### Notes
+
+Присвоєння в умові, коротке замикання, явний fallthrough, затінення, static та while:
+
+~~~text
+yes 1
+A
+AB
+12
+10 1
+1
+1 1
+2 1
+3 1
+3 2 1
+~~~
+Присвоєння для запуску позначене явно if((x=1)); провалювання — [[fallthrough]].
+Попередження не вимикались. Оригінальне if(x=1) відхилене з -Werror:
+
+~~~text
+/home/psxfnw/pf-private/ember/experiments/lab-04/assignment.cpp: In function ‘int main()’:
+/home/psxfnw/pf-private/ember/experiments/lab-04/assignment.cpp:2:24: error: suggest parentheses around assignment used as truth value [-Werror=parentheses]
+    2 | int main(){int x=3;if(x=1)std::cout<<x;}
+      |                       ~^~
+cc1plus: all warnings being treated as errors
+~~~
+### Перевірки
+
+~~~bash
+ctest --test-dir build --output-on-failure
+python3 tests/check_control.py build/ember
+python3 tests/check_machine.py build/ember
+python3 tests/check_cli.py build/ember
+~~~
+
+~~~text
+PASS lab-04: countdown11, all branch conditions, stale flags, unknown opcodes, bounded run, breakpoint, search all8/miss
+~~~
+Перевірено всі варіанти взятих/невзятих JZ/JNZ/JC/JNC, збереження прапорців LOADI, невідомі байти в кожній групі, обмеження run, breakpoint, усі8 позицій пошуку та промах. Регресія01–03 пройшла, ASan+UBSan чисті у готовій програмі.
