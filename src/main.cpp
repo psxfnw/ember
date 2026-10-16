@@ -11,6 +11,7 @@
 #include <string>
 
 #include "cpu.hpp"
+#include "display.hpp"
 #include "dump.hpp"
 #include "memory.hpp"
 
@@ -42,6 +43,9 @@ static void print_help() {
               << "  dumpcpu           inspect CPU object bytes on the host\n"
               << "  find <lo> <hi> <byte>  search [lo,hi)\n"
               << "  b <addr|off>      set/clear a breakpoint\n"
+              << "  show | clear | frame    display operations\n"
+              << "  plot <x> <y> | rowmin <y>\n"
+              << "  sort <lo> <hi> | sortshow <lo> <hi>\n"
               << "  help              this list\n"
               << "  quit              leave\n";
 }
@@ -51,7 +55,7 @@ int main() {
     Memory mem; // 4096 bytes, on the stack, zeroed by the {} in memory.hpp
 
     cpu.mem = &mem;
-    std::cout << "ember 0.4 - 4096 bytes of memory you can see. Type `help`.\n";
+    std::cout << "ember 0.5 - 4096 bytes of memory you can see. Type `help`.\n";
 
     std::string line;
     while (true) {
@@ -141,6 +145,38 @@ int main() {
                 std::cout << "invalid breakpoint\n";
             else
                 cpu.breakpoint = static_cast<int>(addr);
+        } else if (cmd == "show") {
+            show(mem);
+        } else if (cmd == "clear") {
+            clear(mem);
+        } else if (cmd == "frame") {
+            frame(mem);
+        } else if (cmd == "plot") {
+            std::string xs, ys;
+            long x = 0, y = 0;
+            if (!(words >> xs >> ys) || !parse_number(xs, x) || !parse_number(ys, y) || x < 0 ||
+                x >= 64 || y < 0 || y >= 32)
+                std::cout << "usage: plot <0..63> <0..31>\n";
+            else
+                plot(mem, static_cast<int>(x), static_cast<int>(y));
+        } else if (cmd == "rowmin") {
+            std::string ys;
+            long y = 0;
+            if (!(words >> ys) || !parse_number(ys, y) || y < 0 || y >= 32)
+                std::cout << "usage: rowmin <0..31>\n";
+            else
+                std::cout << "rowmin=" << rowmin(mem, static_cast<int>(y)) << '\n';
+        } else if (cmd == "sort" || cmd == "sortshow") {
+            std::string ls, hs;
+            long lo = 0, hi = 0;
+            if (!(words >> ls >> hs) || !parse_number(ls, lo) || !parse_number(hs, hi) || lo < 0 ||
+                hi < lo || hi > static_cast<long>(MEM_SIZE))
+                std::cout << "usage: sort <0<=lo<=hi<=4096>\n";
+            else if (!sort_memory(mem, static_cast<std::uint16_t>(lo),
+                                  static_cast<std::uint16_t>(hi), cmd == "sortshow"))
+                std::cout << "sortshow requires at most 64 bytes in DATA\n";
+            else
+                std::cout << "sorted " << hi - lo << " bytes\n";
         } else if (cmd == "find") {
             std::string l, h, v;
             long lo = 0, hi = 0, value = 0;

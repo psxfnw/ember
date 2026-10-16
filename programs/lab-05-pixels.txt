@@ -1,0 +1,22 @@
+set 0 64
+set 1 32
+set 2 0
+set 3 33
+set 4 0
+set 5 65
+set 6 32
+set 7 13
+set 8 33
+set 9 2
+set 10 65
+set 11 32
+set 12 63
+set 13 33
+set 14 31
+set 15 65
+set 16 67
+set 17 0
+run
+get 2577
+get 2815
+quit

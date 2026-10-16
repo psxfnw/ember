@@ -1,0 +1,6 @@
+frame
+show
+dump
+find 2560 2816 255
+rowmin 12
+quit

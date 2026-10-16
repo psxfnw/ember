@@ -35,3 +35,7 @@ std::uint16_t get16(const Memory& mem, std::size_t addr);
 bool set16(Memory& mem, std::size_t addr, std::uint16_t value);
 
 std::uint16_t find(const Memory& mem, std::uint16_t lo, std::uint16_t hi, Byte needle);
+
+const std::size_t VRAM_LO = 0xA00, VRAM_HI = 0xAFF;
+const std::size_t PORT_OUT = 0xB00, TICKS = 0xB01;
+bool sort_memory(Memory& mem, std::uint16_t lo, std::uint16_t hi, bool visualize = false);

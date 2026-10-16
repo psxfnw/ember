@@ -1,7 +1,7 @@
 # ember — віртуальний комп'ютер на C++17
 
 Навчальний проєкт курсу «Основи програмування»: від пам'яті на 4096 байтів до процесора й асемблера.
-Поточний етап — **Lab 04, Advanced**: стрибки, CMP, обмежений пошук і breakpoint. Попередній етап: адресація, H, LOAD/STORE, run, дамп об’єкта. Попередній етап: CPU, побітовий ALU, прапорці, step/regs і дзеркало стану. Lab 01: перевірений доступ до пам'яті, hex/ASCII-дамп, чотири представлення байта, inc та set16.
+Поточний етап — **Lab 05, Advanced**: VRAM, рядки, сортування з кадрами та rowmin. Попередній етап: стрибки, CMP, обмежений пошук і breakpoint. Попередній етап: адресація, H, LOAD/STORE, run, дамп об’єкта. Попередній етап: CPU, побітовий ALU, прапорці, step/regs і дзеркало стану. Lab 01: перевірений доступ до пам'яті, hex/ASCII-дамп, чотири представлення байта, inc та set16.
 
 ## Збірка й запуск
 
@@ -18,7 +18,7 @@ C++17, -Wall -Wextra -Werror; у Debug увімкнені -fsanitize=address,und
 Попередження та санітайзери не вимкнені.
 
 ~~~text
-ember 0.4 - 4096 bytes of memory you can see. Type `help`.
+ember 0.5 - 4096 bytes of memory you can see. Type `help`.
 ~~~
 | Команда | Дія |
 |---|---|
@@ -697,3 +697,216 @@ python3 tests/check_cli.py build/ember
 PASS lab-04: countdown11, all branch conditions, stale flags, unknown opcodes, bounded run, breakpoint, search all8/miss
 ~~~
 Перевірено всі варіанти взятих/невзятих JZ/JNZ/JC/JNC, збереження прапорців LOADI, невідомі байти в кожній групі, обмеження run, breakpoint, усі8 позицій пошуку та промах. Регресія01–03 пройшла, ASan+UBSan чисті у готовій програмі.
+
+## Lab 05 — Масиви, рядки та екран
+
+Екран64×32, один біт на піксель: 64·32/8=256 байтів0xA00–0xAFF усередині тієї самої Memory.
+Окремого масиву pixels немає. show взятий з наданого коду, plot/clear написані за тією самою формулою:
+
+~~~text
+адреса байта = 0xA00 + y * 8 + x / 8
+номер біта = 7 - x % 8
+маска = 1u << номер біта
+~~~
+
+Наприклад (13,2): адреса0xA11, біт2, маска0x04.
+plot встановлює OR, unplot скидає AND з інверсією маски.
+clear занулює рівно VRAM. Координати перевіряються, включно з від'ємними в CLI.
+
+| Опкод | Мнемоніка | Байти | Прапорці |
+|---|---|---:|---|
+| 04 | OUTS addr16 | 3 | — |
+| 40 | CLS | 1 | — |
+| 41 / 42 | PLOT / UNPLOT | 1 | лише C:0 за успіху,1 за межею |
+| 43 | SHOW | 1 | — |
+
+OUTS друкує до нульового байта,256 байтів або кінця Memory, не виходячи за масив.
+Для рядка гостя використано байти пам'яті, не std::string.
+Нові CLI: show,clear,frame,plot x y,rowmin y,sort lo hi,sortshow lo hi.
+
+### Доказ: екран — пам'ять
+
+Офіційний сценарій робить STORE [H],A з A0x80,H0xA00, без PLOT.
+Вивід першого рядка SHOW та читання VRAM:
+
+~~~text
+#...............................................................
+128  0x80  0b10000000  '.'
+~~~
+Решта31 рядок порожня; це автоматично перевірено. Програма на три пікселі відтворюється так:
+~~~bash
+./build/ember < programs/lab-05-pixels.txt
+~~~
+Пікселі(0,0),(13,2),(63,31); байти0xA11=4 та0xAFF=1.
+### Рамка з C++ і пошук
+
+frame двома циклами малює верх/низ та лівий/правий край, show читає отриману VRAM.
+programs/lab-05-frame.txt друкує всю рамку та дамп. Фрагмент рядків0,1,31:
+
+~~~text
+################################################################
+#..............................................................#
+################################################################
+~~~
+Дамп початку й кінця відеопам’яті:
+
+~~~text
+0a00  ff ff ff ff ff ff ff ff 80 00 00 00 00 00 00 01  |................|
+0af0  80 00 00 00 00 00 00 01 ff ff ff ff ff ff ff ff  |................|
+~~~
+Байтff — вісім засвічених пікселів;80 — лівий край,01 — правий. find по VRAM та rowmin:
+
+~~~text
+found 2560 index=0
+rowmin=0
+~~~
+HELLO та той самий find по даних:
+
+~~~text
+ember 0.5 - 4096 bytes of memory you can see. Type `help`.
+found 2048 index=0
+HELLO
+steps=2
+PC=4 A=0 B=0 H=0 Z=0 N=0 C=0 halted=1
+~~~
+### Advanced: сортування й кадри
+
+sort lo hi — бульбашка на місці, діапазон[lo,hi). Після проходу найбільший із невпорядкованих
+опиняється справа. За відсутності обмінів завершуємо раніше.
+sortshow викликає SHOW після КОЖНОГО проходу; вимагає до64 байтів у DATA, щоб малювання
+не перезаписало дані, які сортуються. Висота стовпчика=min(value,32), x=i−lo, низ — рядок31.
+rowmin y повертає найлівіший піксель або−1; ним виконано альтернативу вимоги про анімацію.
+
+~~~bash
+./build/ember < programs/lab-05-sort.txt
+~~~
+
+Фактичні рядки пам'яті до/після:
+
+~~~text
+0800  08 03 07 01 06 02 05 04 00 00 00 00 00 00 00 00  |................|
+0800  01 02 03 04 05 06 07 08 00 00 00 00 00 00 00 00  |................|
+~~~
+Надруковано5 повних кадрів. Фрагмент рядків24–31 першого та останнього:
+
+~~~text
+.......#........................................................
+.#.....#........................................................
+.#.#...#........................................................
+.#.#.#.#........................................................
+.#.#.###........................................................
+##.#.###........................................................
+##.#####........................................................
+########........................................................
+~~~
+
+~~~text
+.......#........................................................
+......##........................................................
+.....###........................................................
+....####........................................................
+...#####........................................................
+..######........................................................
+.#######........................................................
+########........................................................
+~~~
+### Додаткові порт і таймер ISA
+
+0xB00 PORT_OUT: кожен STORE гостя друкує символ і зберігає байт.
+Повторний запис того самого байта — повторна дія; set хоста не друкує.
+0xB01 TICKS: гостьовий LOAD повертає кількість інструкцій разом із поточною modulo256.
+Підтримані прямі адреси та H. Дзеркало Flags лишилося на0xB02, конфлікту немає.
+Справжній регістр пристрою в C++ потребував би volatile: звичайні два однакові записи
+компілятор може згорнути як зайвий запис, якщо інших спостережуваних дій немає.
+У нашому емуляторі side effect — явний виклик виводу в guest_write.
+Реальні два записи A та читання таймера через H:
+
+~~~text
+ember 0.5 - 4096 bytes of memory you can see. Type `help`.
+AA
+steps=5
+65  0x41  0b01000001  'A'
+~~~
+
+~~~text
+ember 0.5 - 4096 bytes of memory you can see. Type `help`.
+2
+steps=4
+PC=6 A=2 B=0 H=2817 Z=0 N=0 C=0 halted=1
+~~~
+### Notes і C-рядок без нуля
+
+Розміри масиву/вказівника, матриця та окремий плоский масив, перший і повний проходи сортування:
+
+~~~text
+12 8
+6 6
+1 3 2 4
+1 2 3 4
+~~~
+У приватному експерименті термінатор AB замінено на X; фактичний ASan-звіт:
+
+~~~text
+65 66 0
+=================================================================
+==473==ERROR: AddressSanitizer: stack-buffer-overflow on address 0x7444378f0023 at pc 0x78443aa89cf8 bp 0x7ffd1d460a80 sp 0x7ffd1d460238
+READ of size 4 at 0x7444378f0023 thread T0
+    #0 0x78443aa89cf7 in strlen ../../../../src/libsanitizer/sanitizer_common/sanitizer_common_interceptors.inc:425
+    #1 0x78443a763170 in std::basic_ostream<char, std::char_traits<char> >& std::operator<< <std::char_traits<char> >(std::basic_ostream<char, std::char_traits<char> >&, char const*) (/usr/lib/x86_64-linux-gnu/libstdc++.so.6+0x163170) (BuildId: 3a7a8c6bd922e6314edb7a710fdc0293265c2c42)
+    #2 0x5f003f85d965 in main /home/psxfnw/pf-private/ember/experiments/lab-05/string.cpp:2
+    #3 0x784439a2a600  (/usr/lib/x86_64-linux-gnu/libc.so.6+0x2a600) (BuildId: 066527e430a32768d82741e00b81eebb1a872294)
+    #4 0x784439a2a717 in __libc_start_main (/usr/lib/x86_64-linux-gnu/libc.so.6+0x2a717) (BuildId: 066527e430a32768d82741e00b81eebb1a872294)
+    #5 0x5f003f85d264 in _start (/home/psxfnw/pf-private/ember/experiments/lab-05/string+0x2264) (BuildId: d93ee262931d1e28e6b29dce76c9d799a2082eec)
+
+Address 0x7444378f0023 is located in stack of thread T0 at offset 35 in frame
+    #0 0x5f003f85d338 in main /home/psxfnw/pf-private/ember/experiments/lab-05/string.cpp:2
+
+  This frame has 1 object(s):
+    [32, 35) 's' (line 2) <== Memory access at offset 35 overflows this variable
+HINT: this may be a false positive if your program uses some custom stack unwind mechanism, swapcontext or vfork
+      (longjmp and C++ exceptions *are* supported)
+SUMMARY: AddressSanitizer: stack-buffer-overflow (/usr/lib/x86_64-linux-gnu/libstdc++.so.6+0x163170) (BuildId: 3a7a8c6bd922e6314edb7a710fdc0293265c2c42) in std::basic_ostream<char, std::char_traits<char> >& std::operator<< <std::char_traits<char> >(std::basic_ostream<char, std::char_traits<char> >&, char const*)
+Shadow bytes around the buggy address:
+  0x7444378efd80: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x7444378efe00: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x7444378efe80: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x7444378eff00: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x7444378eff80: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+=>0x7444378f0000: f1 f1 f1 f1[03]f3 f3 f3 00 00 00 00 00 00 00 00
+  0x7444378f0080: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x7444378f0100: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x7444378f0180: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x7444378f0200: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x7444378f0280: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+Shadow byte legend (one shadow byte represents 8 application bytes):
+  Addressable:           00
+  Partially addressable: 01 02 03 04 05 06 07
+  Heap left redzone:       fa
+  Freed heap region:       fd
+  Stack left redzone:      f1
+  Stack mid redzone:       f2
+  Stack right redzone:     f3
+  Stack after return:      f5
+  Stack use after scope:   f8
+  Global redzone:          f9
+  Global init order:       f6
+  Poisoned by user:        f7
+  Container overflow:      fc
+  Array cookie:            ac
+  Intra object redzone:    bb
+  ASan internal:           fe
+  Left alloca redzone:     ca
+  Right alloca redzone:    cb
+==473==ABORTING
+~~~
+У готовій VM OUTS має незалежні обмеження; цей баг не входить до застосунку.
+### Перевірки
+~~~bash
+python3 tests/check_display.py build/ember
+ctest --test-dir build --output-on-failure
+~~~
+
+~~~text
+PASS lab-05: exact64x32/stride, bounds/C, OUTS256/end, sort frames, port side effects, timer including current instruction
+~~~
+C++-перевірка охопила всі2048 координат, точну маску/байт, unplot, межі clear, збереження Z/N та зміну лише C у PLOT. Пройшли всі попередні сценарії01–04. У готовій програмі ASan+UBSan без діагностики.

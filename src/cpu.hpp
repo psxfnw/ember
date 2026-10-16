@@ -27,6 +27,7 @@ struct CPU {
     Memory* mem = nullptr; // де лежить коробка. Що таке `*`, пояснює Lab 3;
                            // поки читайте як «процесор знає, де його пам'ять»
     std::uint16_t pc = 0;  // адреса НАСТУПНОЇ інструкції
+    std::uint64_t ticks = 0;
     std::uint16_t h = 0;
     Byte a = 0;
     Byte b = 0;
@@ -70,3 +71,9 @@ const Byte OP_JZ = 0x31;
 const Byte OP_JNZ = 0x32;
 const Byte OP_JC = 0x33;
 const Byte OP_JNC = 0x34;
+
+const Byte OP_OUTS = 0x04;
+const Byte OP_CLS = 0x40;
+const Byte OP_PLOT = 0x41;
+const Byte OP_UNPLOT = 0x42;
+const Byte OP_SHOW = 0x43;

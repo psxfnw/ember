@@ -1,4 +1,5 @@
 #include "alu.hpp"
+#include "display.hpp"
 #include <cassert>
 #include <iostream>
 #include <limits>
@@ -80,6 +81,40 @@ int main() {
         assert(transfer.f.z && transfer.f.n && transfer.f.c);
     }
     assert(transfer.a == 0 && transfer.b == 0 && transfer.h == 2048 && transfer.halted);
+    for (int y = 0; y < 32; ++y)
+        for (int x = 0; x < 64; ++x) {
+            clear(mem);
+            plot(mem, x, y);
+            const std::size_t addr =
+                VRAM_LO + static_cast<std::size_t>(y) * 8 + static_cast<std::size_t>(x) / 8;
+            for (std::size_t a = VRAM_LO; a <= VRAM_HI; ++a)
+                assert(mem_get(mem, a) == (a == addr ? (1u << (7 - x % 8)) : 0));
+            assert(rowmin(mem, y) == x);
+            unplot(mem, x, y);
+            assert(mem_get(mem, addr) == 0);
+        }
+    clear(mem);
+    plot(mem, -1, 0);
+    plot(mem, 64, 0);
+    plot(mem, 0, 32);
+    assert(find(mem, VRAM_LO, VRAM_HI + 1, 128) == VRAM_HI + 1);
+    mem_set(mem, VRAM_LO - 1, 77);
+    mem_set(mem, VRAM_HI + 1, 88);
+    clear(mem);
+    assert(mem_get(mem, VRAM_LO - 1) == 77 && mem_get(mem, VRAM_HI + 1) == 88);
+    assert(sort_memory(mem, 4096, 4096));
+    CPU pixel;
+    pixel.mem = &mem;
+    pixel.pc = 200;
+    pixel.f = {true, true, true};
+    pixel.a = 0;
+    pixel.b = 1;
+    mem_set(mem, 200, OP_PLOT);
+    step(pixel);
+    assert(pixel.f.z && pixel.f.n && !pixel.f.c && mem_get(mem, VRAM_LO + 8) == 128);
+    mem_set(mem, 201, OP_UNPLOT);
+    step(pixel);
+    assert(mem_get(mem, VRAM_LO + 8) == 0);
     std::cout << "PASS: 65536 operand pairs, all unary values, preserved carry, CPU/HALT/bounds\n";
     Byte v = alu_add(200, 100, f);
     std::cout << "ADD 200 100: result=" << unsigned(v) << " Z=" << f.z << " N=" << f.n

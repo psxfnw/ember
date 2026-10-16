@@ -1,4 +1,5 @@
 #include "memory.hpp"
+#include "display.hpp"
 
 Byte mem_get(const Memory& mem, std::size_t addr) {
     if (addr >= MEM_SIZE) {
@@ -36,4 +37,27 @@ std::uint16_t find(const Memory& mem, std::uint16_t lo, std::uint16_t hi, Byte n
         if (mem_get(mem, i) == needle)
             return i;
     return hi;
+}
+
+bool sort_memory(Memory& mem, std::uint16_t lo, std::uint16_t hi, bool visualize) {
+    if (lo > hi || hi > MEM_SIZE)
+        return false;
+    if (visualize && (lo < DATA_LO || hi > DATA_HI + 1 || hi - lo > 64))
+        return false;
+    for (std::uint16_t end = hi; end > lo + 1; --end) {
+        bool changed = false;
+        for (std::uint16_t i = lo; i + 1 < end; ++i) {
+            const Byte a = mem_get(mem, i), b = mem_get(mem, i + 1);
+            if (a > b) {
+                mem_set(mem, i, b);
+                mem_set(mem, i + 1, a);
+                changed = true;
+            }
+        }
+        if (visualize)
+            show_bars(mem, lo, hi);
+        if (!changed)
+            break;
+    }
+    return true;
 }

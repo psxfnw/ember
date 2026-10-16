@@ -1,0 +1,12 @@
+set 2048 8
+set 2049 3
+set 2050 7
+set 2051 1
+set 2052 6
+set 2053 2
+set 2054 5
+set 2055 4
+dump
+sortshow 2048 2056
+dump
+quit

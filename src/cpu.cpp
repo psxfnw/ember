@@ -1,5 +1,6 @@
 #include "cpu.hpp"
 #include "alu.hpp"
+#include "display.hpp"
 #include <iomanip>
 #include <iostream>
 Decoded decode(Byte op) { return {static_cast<Byte>((op >> 4) & 15), static_cast<Byte>(op & 15)}; }
@@ -12,6 +13,7 @@ std::size_t instruction_size(Byte op) {
     case OP_LOAD_B:
     case OP_STORE_A:
     case OP_STORE_B:
+    case OP_OUTS:
     case OP_LOADH:
     case OP_JMP:
     case OP_JZ:
@@ -41,6 +43,16 @@ static void unknown(CPU& cpu, Byte op) {
     std::cout << "unknown opcode 0x" << std::hex << std::setfill('0') << std::setw(2)
               << unsigned(op) << std::dec << std::setfill(' ') << '\n';
 }
+static Byte guest_read(const CPU& cpu, std::size_t addr) {
+    if (addr == TICKS)
+        return static_cast<Byte>((cpu.ticks + 1) & 255);
+    return mem_get(*cpu.mem, addr);
+}
+static void guest_write(CPU& cpu, std::size_t addr, Byte value) {
+    mem_set(*cpu.mem, addr, value);
+    if (addr == PORT_OUT)
+        std::cout << static_cast<char>(value);
+}
 void step(CPU& cpu) {
     if (cpu.halted) {
         std::cout << "halted\n";
@@ -65,6 +77,16 @@ void step(CPU& cpu) {
         switch (instruction.index) {
         case OP_HALT:
             cpu.halted = true;
+            break;
+        case OP_OUTS:
+            if (!address_ok(cpu, operand))
+                return;
+            for (std::size_t i = 0; i < 256 && i < MEM_SIZE - operand; ++i) {
+                const Byte value = guest_read(cpu, operand + i);
+                if (value == 0)
+                    break;
+                std::cout << static_cast<char>(value);
+            }
             break;
         case OP_OUT:
             std::cout << static_cast<char>(cpu.a);
@@ -132,15 +154,15 @@ void step(CPU& cpu) {
             if (!address_ok(cpu, operand))
                 return;
             if (op == OP_LOAD_A)
-                cpu.a = mem_get(*cpu.mem, operand);
+                cpu.a = guest_read(cpu, operand);
             else
-                cpu.b = mem_get(*cpu.mem, operand);
+                cpu.b = guest_read(cpu, operand);
             break;
         case OP_STORE_A:
         case OP_STORE_B:
             if (!address_ok(cpu, operand))
                 return;
-            mem_set(*cpu.mem, operand, op == OP_STORE_A ? cpu.a : cpu.b);
+            guest_write(cpu, operand, op == OP_STORE_A ? cpu.a : cpu.b);
             break;
         case OP_MOV_A_B:
             cpu.a = cpu.b;
@@ -154,12 +176,12 @@ void step(CPU& cpu) {
         case OP_LOAD_H:
             if (!address_ok(cpu, cpu.h))
                 return;
-            cpu.a = mem_get(*cpu.mem, cpu.h);
+            cpu.a = guest_read(cpu, cpu.h);
             break;
         case OP_STORE_H:
             if (!address_ok(cpu, cpu.h))
                 return;
-            mem_set(*cpu.mem, cpu.h, cpu.a);
+            guest_write(cpu, cpu.h, cpu.a);
             break;
         case OP_HLOW:
             cpu.a = static_cast<Byte>(cpu.h & 255);
@@ -204,11 +226,35 @@ void step(CPU& cpu) {
         }
         break;
     }
+    case 4:
+        switch (op) {
+        case OP_CLS:
+            clear(*cpu.mem);
+            break;
+        case OP_PLOT:
+        case OP_UNPLOT:
+            cpu.f.c = cpu.a >= 64 || cpu.b >= 32;
+            if (!cpu.f.c) {
+                if (op == OP_PLOT)
+                    plot(*cpu.mem, cpu.a, cpu.b);
+                else
+                    unplot(*cpu.mem, cpu.a, cpu.b);
+            }
+            break;
+        case OP_SHOW:
+            show(*cpu.mem);
+            break;
+        default:
+            unknown(cpu, op);
+            return;
+        }
+        break;
     default:
         unknown(cpu, op);
         return;
     }
     cpu.pc = next_pc;
+    ++cpu.ticks;
     mem_set(*cpu.mem, FLAG_STATUS,
             static_cast<Byte>((cpu.f.z ? 1 : 0) | (cpu.f.n ? 2 : 0) | (cpu.f.c ? 4 : 0)));
 }
