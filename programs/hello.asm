@@ -1,0 +1,25 @@
+; Рядок створюється самою програмою в DATA, разом із завершальним нулем.
+.define MESSAGE 0x800
+LOADH H, MESSAGE
+LOADI A, 69
+STORE [H], A
+INCH
+LOADI A, 77
+STORE [H], A
+INCH
+LOADI A, 66
+STORE [H], A
+INCH
+LOADI A, 69
+STORE [H], A
+INCH
+LOADI A, 82
+STORE [H], A
+INCH
+LOADI A, 10
+STORE [H], A
+INCH
+LOADI A, 0
+STORE [H], A
+OUTS MESSAGE
+HALT

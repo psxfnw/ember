@@ -10,6 +10,7 @@
 #include <sstream>
 #include <string>
 
+#include "asm/frontend.hpp"
 #include "cpu.hpp"
 #include "display.hpp"
 #include "dump.hpp"
@@ -36,11 +37,11 @@ static void print_help() {
               << "  set <addr> <val>  write one byte (dec or 0x hex)\n"
               << "  inc <addr>        increment a byte modulo 256\n"
               << "  set16 <addr> <n>  write a little-endian 16-bit number\n"
-              << "  reg <a|b> <n>     set an 8-bit register\n"
+              << "  reg <a|b|h|pc> <n>     set an 8-bit register\n"
               << "  regs              show CPU state\n"
               << "  step              execute one instruction\n"
               << "  get16 <addr>      read a little-endian 16-bit value\n"
-              << "  run               execute until HALT (100000 step limit)\n"
+              << "  run [limit]       execute until HALT (default 100000 steps)\n"
               << "  dumpcpu           inspect CPU object bytes on the host\n"
               << "  find <lo> <hi> <byte>  search [lo,hi)\n"
               << "  b <addr|off>      set/clear a breakpoint\n"
@@ -50,17 +51,28 @@ static void print_help() {
               << "  sprite <i> <x> <y> <vx> <vy>  configure sprite 0..7\n"
               << "  tick [n] | sprites           move or inspect sprites\n"
               << "  stack             SP and top stack bytes\n"
+              << "  lex <file.asm> | asm <file.asm> | disasm <file.asm-or-bin>\n"
               << "  help              this list\n"
               << "  quit              leave\n";
 }
 
-int main() {
+int main(int argc, char* argv[]) {
     Sprite sprites[8]{};
     CPU cpu;
     Memory mem; // 4096 bytes, on the stack, zeroed by the {} in memory.hpp
 
     cpu.mem = &mem;
-    std::cout << "ember 0.7 - 4096 bytes of memory you can see. Type `help`.\n";
+    if (argc > 1) {
+        if (argc == 2)
+            return file_command("run", argv[1], cpu, mem);
+        const std::string action = argv[1];
+        if (argc == 3 && (action == "lex" || action == "asm" || action == "disasm"))
+            return file_command(action, argv[2], cpu, mem);
+        std::cerr
+            << "usage: ember [file.asm | lex file.asm | asm file.asm | disasm file.asm-or-bin]\n";
+        return 1;
+    }
+    std::cout << "ember 1.0 - 4096 bytes of memory you can see. Type `help`.\n";
 
     std::string line;
     while (true) {
@@ -84,6 +96,13 @@ int main() {
             break;
         } else if (cmd == "help") {
             print_help();
+        } else if (cmd == "lex" || cmd == "asm" || cmd == "disasm") {
+            std::string path;
+            std::getline(words >> std::ws, path);
+            if (path.empty())
+                std::cout << "usage: " << cmd << " <path>\n";
+            else
+                file_command(cmd, path, cpu, mem, true);
         } else if (cmd == "dump") {
             dump(mem);
         } else if (cmd == "get") {
