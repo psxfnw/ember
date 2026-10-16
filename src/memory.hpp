@@ -39,3 +39,5 @@ std::uint16_t find(const Memory& mem, std::uint16_t lo, std::uint16_t hi, Byte n
 const std::size_t VRAM_LO = 0xA00, VRAM_HI = 0xAFF;
 const std::size_t PORT_OUT = 0xB00, TICKS = 0xB01;
 bool sort_memory(Memory& mem, std::uint16_t lo, std::uint16_t hi, bool visualize = false);
+
+const std::size_t HEAP_LO = 0xC00, HEAP_HI = 0xEFF;

@@ -1,0 +1,27 @@
+set 0 32
+set 1 4
+set 2 96
+set 3 32
+set 4 17
+set 5 42
+set 6 43
+set 7 42
+set 8 43
+set 9 42
+set 10 43
+set 11 42
+set 12 32
+set 13 3
+set 14 96
+set 15 32
+set 16 34
+set 17 42
+set 18 43
+set 19 42
+set 20 43
+set 21 42
+set 22 0
+run
+regs
+dump
+quit

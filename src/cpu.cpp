@@ -5,21 +5,21 @@
 #include <iostream>
 Decoded decode(Byte op) { return {static_cast<Byte>((op >> 4) & 15), static_cast<Byte>(op & 15)}; }
 std::size_t instruction_size(Byte op) {
-    switch (op) {
-    case OP_LOADI_A:
-    case OP_LOADI_B:
+    switch (static_cast<Op>(op)) {
+    case Op::LoadiA:
+    case Op::LoadiB:
         return 2;
-    case OP_LOAD_A:
-    case OP_LOAD_B:
-    case OP_STORE_A:
-    case OP_STORE_B:
-    case OP_OUTS:
-    case OP_LOADH:
-    case OP_JMP:
-    case OP_JZ:
-    case OP_JNZ:
-    case OP_JC:
-    case OP_JNC:
+    case Op::LoadA:
+    case Op::LoadB:
+    case Op::StoreA:
+    case Op::StoreB:
+    case Op::OutS:
+    case Op::LoadH:
+    case Op::Jmp:
+    case Op::Jz:
+    case Op::Jnz:
+    case Op::Jc:
+    case Op::Jnc:
         return 3;
     default:
         return 1;
@@ -62,8 +62,9 @@ void step(CPU& cpu) {
         fail(cpu, "PC outside memory or memory not connected");
         return;
     }
-    const Byte op = mem_get(*cpu.mem, cpu.pc);
-    const std::size_t size = instruction_size(op);
+    const Byte raw = mem_get(*cpu.mem, cpu.pc);
+    const Op op = static_cast<Op>(raw);
+    const std::size_t size = instruction_size(raw);
     if (size > MEM_SIZE - cpu.pc) {
         fail(cpu, "truncated instruction");
         return;
@@ -71,14 +72,14 @@ void step(CPU& cpu) {
     const std::uint16_t operand =
         size == 3 ? get16(*cpu.mem, cpu.pc + 1) : (size == 2 ? mem_get(*cpu.mem, cpu.pc + 1) : 0);
     std::uint16_t next_pc = static_cast<std::uint16_t>(cpu.pc + size);
-    const Decoded instruction = decode(op);
+    const Decoded instruction = decode(raw);
     switch (instruction.group) {
     case 0:
-        switch (instruction.index) {
-        case OP_HALT:
+        switch (op) {
+        case Op::Halt:
             cpu.halted = true;
             break;
-        case OP_OUTS:
+        case Op::OutS:
             if (!address_ok(cpu, operand))
                 return;
             for (std::size_t i = 0; i < 256 && i < MEM_SIZE - operand; ++i) {
@@ -88,135 +89,135 @@ void step(CPU& cpu) {
                 std::cout << static_cast<char>(value);
             }
             break;
-        case OP_OUT:
+        case Op::Out:
             std::cout << static_cast<char>(cpu.a);
             break;
-        case OP_OUTN:
+        case Op::OutN:
             std::cout << static_cast<unsigned>(cpu.a) << ' ';
             break;
-        case OP_NOP:
+        case Op::Nop:
             break;
         default:
-            unknown(cpu, op);
+            unknown(cpu, raw);
             return;
         }
         break;
     case 1:
         switch (op) {
-        case OP_CMP:
+        case Op::Cmp:
             alu_sub(cpu.a, cpu.b, cpu.f);
             break;
-        case OP_ADD:
+        case Op::Add:
             cpu.a = alu_add(cpu.a, cpu.b, cpu.f);
             break;
-        case OP_SUB:
+        case Op::Sub:
             cpu.a = alu_sub(cpu.a, cpu.b, cpu.f);
             break;
-        case OP_AND:
+        case Op::And:
             cpu.a = alu_and(cpu.a, cpu.b, cpu.f);
             break;
-        case OP_OR:
+        case Op::Or:
             cpu.a = alu_or(cpu.a, cpu.b, cpu.f);
             break;
-        case OP_XOR:
+        case Op::Xor:
             cpu.a = alu_xor(cpu.a, cpu.b, cpu.f);
             break;
-        case OP_NOT:
+        case Op::Not:
             cpu.a = alu_not(cpu.a, cpu.f);
             break;
-        case OP_SHL:
+        case Op::Shl:
             cpu.a = alu_shl(cpu.a, cpu.f);
             break;
-        case OP_SHR:
+        case Op::Shr:
             cpu.a = alu_shr(cpu.a, cpu.f);
             break;
-        case OP_INC:
+        case Op::Inc:
             cpu.a = alu_inc(cpu.a, cpu.f);
             break;
-        case OP_DEC:
+        case Op::Dec:
             cpu.a = alu_dec(cpu.a, cpu.f);
             break;
         default:
-            unknown(cpu, op);
+            unknown(cpu, raw);
             return;
         }
         break;
     case 2:
         switch (op) {
-        case OP_LOADI_A:
+        case Op::LoadiA:
             cpu.a = static_cast<Byte>(operand);
             break;
-        case OP_LOADI_B:
+        case Op::LoadiB:
             cpu.b = static_cast<Byte>(operand);
             break;
-        case OP_LOAD_A:
-        case OP_LOAD_B:
+        case Op::LoadA:
+        case Op::LoadB:
             if (!address_ok(cpu, operand))
                 return;
-            if (op == OP_LOAD_A)
+            if (op == Op::LoadA)
                 cpu.a = guest_read(cpu, operand);
             else
                 cpu.b = guest_read(cpu, operand);
             break;
-        case OP_STORE_A:
-        case OP_STORE_B:
+        case Op::StoreA:
+        case Op::StoreB:
             if (!address_ok(cpu, operand))
                 return;
-            guest_write(cpu, operand, op == OP_STORE_A ? cpu.a : cpu.b);
+            guest_write(cpu, operand, op == Op::StoreA ? cpu.a : cpu.b);
             break;
-        case OP_MOV_A_B:
+        case Op::MovAB:
             cpu.a = cpu.b;
             break;
-        case OP_MOV_B_A:
+        case Op::MovBA:
             cpu.b = cpu.a;
             break;
-        case OP_LOADH:
+        case Op::LoadH:
             cpu.h = operand;
             break;
-        case OP_LOAD_H:
+        case Op::LoadIndirect:
             if (!address_ok(cpu, cpu.h))
                 return;
             cpu.a = guest_read(cpu, cpu.h);
             break;
-        case OP_STORE_H:
+        case Op::StoreIndirect:
             if (!address_ok(cpu, cpu.h))
                 return;
             guest_write(cpu, cpu.h, cpu.a);
             break;
-        case OP_HLOW:
+        case Op::HLow:
             cpu.a = static_cast<Byte>(cpu.h & 255);
             break;
-        case OP_INCH:
+        case Op::IncH:
             cpu.h = static_cast<std::uint16_t>(cpu.h + 1);
             break;
-        case OP_DECH:
+        case Op::DecH:
             cpu.h = static_cast<std::uint16_t>(cpu.h - 1);
             break;
         default:
-            unknown(cpu, op);
+            unknown(cpu, raw);
             return;
         }
         break;
     case 3: {
         bool take = false;
         switch (op) {
-        case OP_JMP:
+        case Op::Jmp:
             take = true;
             break;
-        case OP_JZ:
+        case Op::Jz:
             take = cpu.f.z;
             break;
-        case OP_JNZ:
+        case Op::Jnz:
             take = !cpu.f.z;
             break;
-        case OP_JC:
+        case Op::Jc:
             take = cpu.f.c;
             break;
-        case OP_JNC:
+        case Op::Jnc:
             take = !cpu.f.c;
             break;
         default:
-            unknown(cpu, op);
+            unknown(cpu, raw);
             return;
         }
         if (take) {
@@ -228,29 +229,46 @@ void step(CPU& cpu) {
     }
     case 4:
         switch (op) {
-        case OP_CLS:
+        case Op::Cls:
             clear(*cpu.mem);
             break;
-        case OP_PLOT:
-        case OP_UNPLOT:
+        case Op::Plot:
+        case Op::Unplot:
             cpu.f.c = cpu.a >= 64 || cpu.b >= 32;
             if (!cpu.f.c) {
-                if (op == OP_PLOT)
+                if (op == Op::Plot)
                     plot(*cpu.mem, cpu.a, cpu.b);
                 else
                     unplot(*cpu.mem, cpu.a, cpu.b);
             }
             break;
-        case OP_SHOW:
+        case Op::Show:
             show(*cpu.mem);
             break;
         default:
-            unknown(cpu, op);
+            unknown(cpu, raw);
+            return;
+        }
+        break;
+    case 6:
+        switch (op) {
+        case Op::Alloc:
+            if (cpu.heap_ptr < HEAP_LO || cpu.heap_ptr > HEAP_HI + 1 ||
+                cpu.a > HEAP_HI + 1 - cpu.heap_ptr)
+                cpu.f.c = true;
+            else {
+                cpu.h = cpu.heap_ptr;
+                cpu.heap_ptr = static_cast<std::uint16_t>(cpu.heap_ptr + cpu.a);
+                cpu.f.c = false;
+            }
+            break;
+        default:
+            unknown(cpu, raw);
             return;
         }
         break;
     default:
-        unknown(cpu, op);
+        unknown(cpu, raw);
         return;
     }
     cpu.pc = next_pc;
@@ -261,7 +279,7 @@ void step(CPU& cpu) {
 void dump_regs(const CPU& cpu) {
     std::cout << "PC=" << cpu.pc << " A=" << unsigned(cpu.a) << " B=" << unsigned(cpu.b)
               << " H=" << cpu.h << " Z=" << cpu.f.z << " N=" << cpu.f.n << " C=" << cpu.f.c
-              << " halted=" << cpu.halted << '\n';
+              << " halted=" << cpu.halted << " heap=" << cpu.heap_ptr << '\n';
 }
 
 void run(CPU& cpu, std::size_t limit) {

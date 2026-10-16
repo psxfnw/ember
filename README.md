@@ -1,7 +1,7 @@
 # ember — віртуальний комп'ютер на C++17
 
 Навчальний проєкт курсу «Основи програмування»: від пам'яті на 4096 байтів до процесора й асемблера.
-Поточний етап — **Lab 05, Advanced**: VRAM, рядки, сортування з кадрами та rowmin. Попередній етап: стрибки, CMP, обмежений пошук і breakpoint. Попередній етап: адресація, H, LOAD/STORE, run, дамп об’єкта. Попередній етап: CPU, побітовий ALU, прапорці, step/regs і дзеркало стану. Lab 01: перевірений доступ до пам'яті, hex/ASCII-дамп, чотири представлення байта, inc та set16.
+Поточний етап — **Lab 06, Advanced**: enum class Op, спрайти, bump-купa та тегований Value. Попередній етап: VRAM, рядки, сортування з кадрами та rowmin. Попередній етап: стрибки, CMP, обмежений пошук і breakpoint. Попередній етап: адресація, H, LOAD/STORE, run, дамп об’єкта. Попередній етап: CPU, побітовий ALU, прапорці, step/regs і дзеркало стану. Lab 01: перевірений доступ до пам'яті, hex/ASCII-дамп, чотири представлення байта, inc та set16.
 
 ## Збірка й запуск
 
@@ -18,7 +18,7 @@ C++17, -Wall -Wextra -Werror; у Debug увімкнені -fsanitize=address,und
 Попередження та санітайзери не вимкнені.
 
 ~~~text
-ember 0.5 - 4096 bytes of memory you can see. Type `help`.
+ember 0.6 - 4096 bytes of memory you can see. Type `help`.
 ~~~
 | Команда | Дія |
 |---|---|
@@ -910,3 +910,270 @@ ctest --test-dir build --output-on-failure
 PASS lab-05: exact64x32/stride, bounds/C, OUTS256/end, sort frames, port side effects, timer including current instruction
 ~~~
 C++-перевірка охопила всі2048 координат, точну маску/байт, unplot, межі clear, збереження Z/N та зміну лише C у PLOT. Пройшли всі попередні сценарії01–04. У готовій програмі ASan+UBSan без діагностики.
+
+## Lab 06 — Структури, переліки та купа
+
+Усі OP-константи замінені на enum class Op : uint8_t із ТИМИ САМИМИ значеннями ISA.
+Сирий байт перетворюється явно; внутрішні switch перемикаються по Op.
+Невідомі значення лишилися помилкою. Всі офіційні та додаткові сценарії Lab01–05 пройшли без змін.
+
+### Фактична розкладка
+
+~~~bash
+./build/layout
+~~~
+
+~~~text
+CPU size=48 align=8
+mem offset=0 size=8
+pc offset=8 size=2
+ticks offset=16 size=8
+heap_ptr offset=24 size=2
+h offset=26 size=2
+a offset=28 size=1
+b offset=29 size=1
+f offset=30 size=3
+faulted offset=33 size=1
+breakpoint offset=36 size=4
+halted offset=40 size=1
+Flags size=3
+Sprite size=5 align=1
+Sprite offsets 0 1 2 3 4
+P size=8 fields=5 n-offset=4
+Value size=4 kind-offset=0 bits-offset=2 Addr=3072
+Op Add=16
+~~~
+CPU займає48 байтів, сума розмірів полів33, вирівнювальних15:
+6 між pc та ticks,2 перед breakpoint,7 у хвості для вирівнювання наступного CPU на8.
+Memory не входить у CPU повністю — всередині лише8-байтовий вказівник.
+Flags має3 байти. Sprite має5 без padding, поля на0,1,2,3,4.
+Ці числа виміряні в цій версії; подальші поля можуть змінити sizeof.
+
+### Карта всіх4096 байтів
+
+| Регіон | Адреси | Байти | Напрям/призначення |
+|---|---|---:|---|
+| CODE | 000–7FF | 2048 | програма, PC стартує0 |
+| DATA | 800–9FF | 512 | рядки/масиви |
+| VRAM | A00–AFF | 256 |64×32 біти |
+| запас | B00–BFF | 256 | B00 порт, B01 таймер, B02 Flags |
+| HEAP | C00–EFF | 768 | heap_ptr росте вгору |
+| STACK | F00–FFF | 256 | зарезервований, у Lab07 ростиме вниз |
+
+### Спрайти
+
+На хості Sprite sprites[8]{} з x/y:uint8_t, vx/vy:int8_t, alive:bool.
+sprite i x y vx vy задає слот; tick [n] рухає всі живі, віддзеркалює рух біля країв,
+очищує VRAM і малює новий кадр. sprites показує стан.
+Координати —0...63/0...31; швидкості−127...127. −128 відхиляється,
+бо протилежна швидкість+128 не подається в int8_t.
+Для великих швидкостей цикл віддзеркалення обробляє кілька зіткнень за такт.
+При досягненні краю швидкість вже дивиться всередину екрана.
+
+~~~bash
+./build/ember < programs/lab-06-sprites.txt
+~~~
+
+Реальні стани до руху, на краях і після відскоку:
+
+~~~text
+sprite 0 x=62 y=1 vx=1 vy=-1
+sprite 1 x=1 y=30 vx=-1 vy=1
+sprite 0 x=63 y=0 vx=-1 vy=1
+sprite 1 x=0 y=31 vx=1 vy=-1
+sprite 0 x=62 y=1 vx=-1 vy=1
+sprite 1 x=1 y=30 vx=1 vy=-1
+~~~
+### Advanced: ALLOC
+
+| Опкод | Мнемоніка | Байти | Прапорці | Поведінка |
+|---|---|---:|---|---|
+| 60 | ALLOC | 1 | лише C | виділити A байтів, H=початок, посунути heap_ptr; за відмови C=1, H/heap_ptr незмінні |
+
+heap_ptr стартує0xC00, виключена верхня межа0xF00. Перевіряємо місткість до додавання.
+A=0 дозволений: повертає поточну вершину без резервування байтів.
+Немає FREE: блок живе до завершення/нового CPU, повторно використати його цей алокатор не вміє.
+Він виділяє адресу ГОСТЯ всередині Memory, не виконує new хоста.
+
+programs/lab-06-heap.txt виділяє4 та3 байти й записує11 і22 відповідно:
+
+~~~text
+PC=23 A=34 B=0 H=3078 Z=0 N=0 C=0 halted=1 heap=3079
+0c00  11 11 11 11 22 22 22 00 00 00 00 00 00 00 00 00  |....""".........|
+~~~
+Перший блок C00–C03, другий C04–C06, нова вершинаC07: дірок немає,
+бо перед кожним виділенням беремо рівно поточну вершину.
+
+### Тегований Value проти union
+
+Value містить Kind (Byte,Addr,SpriteId) і uint16_t bits; у виміряній розкладці це4 байти.
+Вид записаний поруч зі значенням: Value{Kind::Addr,0xC00} можна відрізнити від Byte з тими самими бітами.
+union зберігає альтернативи в одній пам'яті; сам по собі не знає, який член активний.
+У тегованій структурі цей факт зберігається явно. Потрібно однаково правильно перевіряти тег перед тлумаченням.
+Value обрано як Advanced-альтернативу складнішому FREE зі списком вільних блоків.
+
+### Notes: типізація та масив записів
+
+Спроба присвоїти int в Op відхилена компілятором:
+
+~~~text
+/home/psxfnw/pf-private/ember/experiments/lab-06/enum-error.cpp: In function ‘int main()’:
+/home/psxfnw/pf-private/ember/experiments/lab-06/enum-error.cpp:1:70: error: cannot convert ‘int’ to ‘Op’ in assignment
+    1 | enum class Op:unsigned char{Halt=0,Add=16};int main(){Op o=Op::Add;o=1;return static_cast<int>(o);}
+      |                                                                      ^
+      |                                                                      |
+      |                                                                      int
+~~~
+Окремий фрагмент Notes §5 після одного руху двох записів:
+
+~~~text
+0 1
+1 9
+~~~
+### Три справжні звіти ASan/LSan й виправлення
+
+Досліди виконані окремими програмами в Ubuntu/WSL, Clang21, C++17,
+-Wall -Wextra -Werror -fsanitize=address,undefined -g. Для імен файлів використано llvm-symbolizer21.
+Linux LeakSanitizer доступний; обмеження Apple Silicon тут не застосовується.
+
+**Читання після delete**
+
+~~~text
+42
+=================================================================
+==464==ERROR: AddressSanitizer: heap-use-after-free on address 0x72e2ef1e0010 at pc 0x5e43767e81ca bp 0x7ffef8d94ff0 sp 0x7ffef8d94fe8
+READ of size 4 at 0x72e2ef1e0010 thread T0
+    #0 0x5e43767e81c9 in main /home/psxfnw/pf-private/ember/experiments/lab-06/use-after-free.cpp:2:76
+    #1 0x76c2f002a600  (/usr/lib/x86_64-linux-gnu/libc.so.6+0x2a600) (BuildId: 066527e430a32768d82741e00b81eebb1a872294)
+    #2 0x76c2f002a717 in __libc_start_main (/usr/lib/x86_64-linux-gnu/libc.so.6+0x2a717) (BuildId: 066527e430a32768d82741e00b81eebb1a872294)
+    #3 0x5e43766fd394 in _start (/home/psxfnw/pf-private/ember/experiments/lab-06/use-after-free+0x2d394) (BuildId: 537dee9d5f2e71e339461341cd1fc0b1133570c3)
+
+0x72e2ef1e0010 is located 0 bytes inside of 4-byte region [0x72e2ef1e0010,0x72e2ef1e0014)
+freed by thread T0 here:
+    #0 0x5e43767e77e6 in operator delete(void*, unsigned long) (/home/psxfnw/pf-private/ember/experiments/lab-06/use-after-free+0x1177e6) (BuildId: 537dee9d5f2e71e339461341cd1fc0b1133570c3)
+    #1 0x5e43767e8168 in main /home/psxfnw/pf-private/ember/experiments/lab-06/use-after-free.cpp:2:56
+    #2 0x76c2f002a600  (/usr/lib/x86_64-linux-gnu/libc.so.6+0x2a600) (BuildId: 066527e430a32768d82741e00b81eebb1a872294)
+    #3 0x76c2f002a717 in __libc_start_main (/usr/lib/x86_64-linux-gnu/libc.so.6+0x2a717) (BuildId: 066527e430a32768d82741e00b81eebb1a872294)
+    #4 0x5e43766fd394 in _start (/home/psxfnw/pf-private/ember/experiments/lab-06/use-after-free+0x2d394) (BuildId: 537dee9d5f2e71e339461341cd1fc0b1133570c3)
+
+previously allocated by thread T0 here:
+    #0 0x5e43767e6b61 in operator new(unsigned long) (/home/psxfnw/pf-private/ember/experiments/lab-06/use-after-free+0x116b61) (BuildId: 537dee9d5f2e71e339461341cd1fc0b1133570c3)
+    #1 0x5e43767e8000 in main /home/psxfnw/pf-private/ember/experiments/lab-06/use-after-free.cpp:2:19
+    #2 0x76c2f002a600  (/usr/lib/x86_64-linux-gnu/libc.so.6+0x2a600) (BuildId: 066527e430a32768d82741e00b81eebb1a872294)
+    #3 0x76c2f002a717 in __libc_start_main (/usr/lib/x86_64-linux-gnu/libc.so.6+0x2a717) (BuildId: 066527e430a32768d82741e00b81eebb1a872294)
+    #4 0x5e43766fd394 in _start (/home/psxfnw/pf-private/ember/experiments/lab-06/use-after-free+0x2d394) (BuildId: 537dee9d5f2e71e339461341cd1fc0b1133570c3)
+
+SUMMARY: AddressSanitizer: heap-use-after-free /home/psxfnw/pf-private/ember/experiments/lab-06/use-after-free.cpp:2:76 in main
+Shadow bytes around the buggy address:
+  0x72e2ef1dfd80: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x72e2ef1dfe00: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x72e2ef1dfe80: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x72e2ef1dff00: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x72e2ef1dff80: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+=>0x72e2ef1e0000: fa fa[fd]fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x72e2ef1e0080: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x72e2ef1e0100: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x72e2ef1e0180: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x72e2ef1e0200: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x72e2ef1e0280: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+Shadow byte legend (one shadow byte represents 8 application bytes):
+  Addressable:           00
+  Partially addressable: 01 02 03 04 05 06 07
+  Heap left redzone:       fa
+  Freed heap region:       fd
+  Stack left redzone:      f1
+  Stack mid redzone:       f2
+  Stack right redzone:     f3
+  Stack after return:      f5
+  Stack use after scope:   f8
+  Global redzone:          f9
+  Global init order:       f6
+  Poisoned by user:        f7
+  Container overflow:      fc
+  Array cookie:            ac
+  Intra object redzone:    bb
+  ASan internal:           fe
+  Left alloca redzone:     ca
+  Right alloca redzone:    cb
+==464==ABORTING
+~~~
+Об’єкта вже немає, збережена адреса стала завислою; читати через неї не можна.
+
+**Повторне delete**
+
+~~~text
+=================================================================
+==471==ERROR: AddressSanitizer: attempting double-free on 0x6ffab7fe0010 in thread T0:
+    #0 0x5ae4c30ab7b6 in operator delete(void*, unsigned long) (/home/psxfnw/pf-private/ember/experiments/lab-06/double-free+0x1177b6) (BuildId: c4bd28d29d90eb92defd865f9d14ea0da44210bf)
+    #1 0x5ae4c30ac0ce in main /home/psxfnw/pf-private/ember/experiments/lab-06/double-free.cpp:1:40
+    #2 0x73dab8c2a600  (/usr/lib/x86_64-linux-gnu/libc.so.6+0x2a600) (BuildId: 066527e430a32768d82741e00b81eebb1a872294)
+    #3 0x73dab8c2a717 in __libc_start_main (/usr/lib/x86_64-linux-gnu/libc.so.6+0x2a717) (BuildId: 066527e430a32768d82741e00b81eebb1a872294)
+    #4 0x5ae4c2fc1364 in _start (/home/psxfnw/pf-private/ember/experiments/lab-06/double-free+0x2d364) (BuildId: c4bd28d29d90eb92defd865f9d14ea0da44210bf)
+
+0x6ffab7fe0010 is located 0 bytes inside of 4-byte region [0x6ffab7fe0010,0x6ffab7fe0014)
+freed by thread T0 here:
+    #0 0x5ae4c30ab7b6 in operator delete(void*, unsigned long) (/home/psxfnw/pf-private/ember/experiments/lab-06/double-free+0x1177b6) (BuildId: c4bd28d29d90eb92defd865f9d14ea0da44210bf)
+    #1 0x5ae4c30ac086 in main /home/psxfnw/pf-private/ember/experiments/lab-06/double-free.cpp:1:31
+    #2 0x73dab8c2a600  (/usr/lib/x86_64-linux-gnu/libc.so.6+0x2a600) (BuildId: 066527e430a32768d82741e00b81eebb1a872294)
+    #3 0x73dab8c2a717 in __libc_start_main (/usr/lib/x86_64-linux-gnu/libc.so.6+0x2a717) (BuildId: 066527e430a32768d82741e00b81eebb1a872294)
+    #4 0x5ae4c2fc1364 in _start (/home/psxfnw/pf-private/ember/experiments/lab-06/double-free+0x2d364) (BuildId: c4bd28d29d90eb92defd865f9d14ea0da44210bf)
+
+previously allocated by thread T0 here:
+    #0 0x5ae4c30aab31 in operator new(unsigned long) (/home/psxfnw/pf-private/ember/experiments/lab-06/double-free+0x116b31) (BuildId: c4bd28d29d90eb92defd865f9d14ea0da44210bf)
+    #1 0x5ae4c30abfd0 in main /home/psxfnw/pf-private/ember/experiments/lab-06/double-free.cpp:1:19
+    #2 0x73dab8c2a600  (/usr/lib/x86_64-linux-gnu/libc.so.6+0x2a600) (BuildId: 066527e430a32768d82741e00b81eebb1a872294)
+    #3 0x73dab8c2a717 in __libc_start_main (/usr/lib/x86_64-linux-gnu/libc.so.6+0x2a717) (BuildId: 066527e430a32768d82741e00b81eebb1a872294)
+    #4 0x5ae4c2fc1364 in _start (/home/psxfnw/pf-private/ember/experiments/lab-06/double-free+0x2d364) (BuildId: c4bd28d29d90eb92defd865f9d14ea0da44210bf)
+
+SUMMARY: AddressSanitizer: double-free (/home/psxfnw/pf-private/ember/experiments/lab-06/double-free+0x1177b6) (BuildId: c4bd28d29d90eb92defd865f9d14ea0da44210bf) in operator delete(void*, unsigned long)
+==471==ABORTING
+~~~
+Один виділений об’єкт не можна звільняти двічі.
+
+**Витік**
+
+~~~text
+=================================================================
+==473==ERROR: LeakSanitizer: detected memory leaks
+
+Direct leak of 4 byte(s) in 1 object(s) allocated from:
+    #0 0x5b1627208b31 in operator new(unsigned long) (/home/psxfnw/pf-private/ember/experiments/lab-06/leak+0x116b31) (BuildId: 44a41d581c95d81480ae49e82d9f36e448595342)
+    #1 0x5b1627209fd0 in main /home/psxfnw/pf-private/ember/experiments/lab-06/leak.cpp:1:12
+    #2 0x75714402a600  (/usr/lib/x86_64-linux-gnu/libc.so.6+0x2a600) (BuildId: 066527e430a32768d82741e00b81eebb1a872294)
+    #3 0x75714402a717 in __libc_start_main (/usr/lib/x86_64-linux-gnu/libc.so.6+0x2a717) (BuildId: 066527e430a32768d82741e00b81eebb1a872294)
+    #4 0x5b162711f364 in _start (/home/psxfnw/pf-private/ember/experiments/lab-06/leak+0x2d364) (BuildId: 44a41d581c95d81480ae49e82d9f36e448595342)
+
+SUMMARY: AddressSanitizer: 4 byte(s) leaked in 1 allocation(s).
+~~~
+new створив об’єкт, останній вказівник не збережений; delete виконати нікому.
+Виправлений окремий варіант читає значення ДО delete, зануляє вказівник,
+для new[] використовує delete[]. Нульовий вказівник не розіменовують.
+З ASAN_OPTIONS=detect_leaks=1 діагностики немає, реальний вивід:
+
+~~~text
+42
+7
+~~~
+Навмисно зламані фрагменти не входять до вихідного дерева ember.
+
+### Перевірки
+
+Окремого офіційного checks/lab-06.txt немає. За CHECKS.md виконана регресія всіх попередніх,
+C++-тест, структура-layout та власний tests/check_records.py:
+
+~~~text
+PASS lab-06: refactor regression, two sprites/both axes, large speeds, heap exact fit and failed ALLOC preserving H
+~~~
+
+~~~text
+Test project /home/psxfnw/pf/ember/build
+    Start 1: alu-and-cpu
+1/2 Test #1: alu-and-cpu ......................   Passed    0.03 sec
+    Start 2: structure-layout
+2/2 Test #2: structure-layout .................   Passed    0.01 sec
+
+100% tests passed, 0 tests failed out of 2
+
+Total Test time (real) =   0.04 sec
+~~~
+У готовому коді Debug ASan+UBSan/LSan чисті; помилки вище належать лише навмисним приватним дослідам.

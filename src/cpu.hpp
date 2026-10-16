@@ -2,20 +2,48 @@
 #include "memory.hpp"
 #include <cstdint>
 
-// Коди операцій — саме з ISA.uk.md, свого не вигадуйте.
-// Поки це звичайні константи (Lab 1, `const`). У Lab 6 вони стануть `enum class Op`.
-const Byte OP_HALT = 0x00;
-const Byte OP_NOP = 0x01;
-const Byte OP_ADD = 0x10;
-const Byte OP_SUB = 0x11;
-const Byte OP_AND = 0x12;
-const Byte OP_OR = 0x13;
-const Byte OP_XOR = 0x14;
-const Byte OP_NOT = 0x15;
-const Byte OP_SHL = 0x16;
-const Byte OP_SHR = 0x17;
-const Byte OP_INC = 0x18;
-const Byte OP_DEC = 0x19;
+enum class Op : std::uint8_t {
+    Halt = 0x00,
+    Nop = 0x01,
+    Out = 0x02,
+    OutN = 0x03,
+    OutS = 0x04,
+    Add = 0x10,
+    Sub = 0x11,
+    And = 0x12,
+    Or = 0x13,
+    Xor = 0x14,
+    Not = 0x15,
+    Shl = 0x16,
+    Shr = 0x17,
+    Inc = 0x18,
+    Dec = 0x19,
+    Cmp = 0x1A,
+    LoadiA = 0x20,
+    LoadiB = 0x21,
+    LoadA = 0x22,
+    LoadB = 0x23,
+    StoreA = 0x24,
+    StoreB = 0x25,
+    MovAB = 0x26,
+    MovBA = 0x27,
+    LoadH = 0x28,
+    LoadIndirect = 0x29,
+    StoreIndirect = 0x2A,
+    IncH = 0x2B,
+    DecH = 0x2C,
+    HLow = 0x2D,
+    Jmp = 0x30,
+    Jz = 0x31,
+    Jnz = 0x32,
+    Jc = 0x33,
+    Jnc = 0x34,
+    Cls = 0x40,
+    Plot = 0x41,
+    Unplot = 0x42,
+    Show = 0x43,
+    Alloc = 0x60
+};
 
 struct Flags {
     bool z = false; // результат нульовий
@@ -28,6 +56,7 @@ struct CPU {
                            // поки читайте як «процесор знає, де його пам'ять»
     std::uint16_t pc = 0;  // адреса НАСТУПНОЇ інструкції
     std::uint64_t ticks = 0;
+    std::uint16_t heap_ptr = HEAP_LO;
     std::uint16_t h = 0;
     Byte a = 0;
     Byte b = 0;
@@ -46,34 +75,5 @@ struct Decoded {
 };
 Decoded decode(Byte op);
 
-const Byte OP_OUT = 0x02;
-const Byte OP_OUTN = 0x03;
-const Byte OP_LOADI_A = 0x20;
-const Byte OP_LOADI_B = 0x21;
-const Byte OP_LOAD_A = 0x22;
-const Byte OP_LOAD_B = 0x23;
-const Byte OP_STORE_A = 0x24;
-const Byte OP_STORE_B = 0x25;
-const Byte OP_MOV_A_B = 0x26;
-const Byte OP_MOV_B_A = 0x27;
-const Byte OP_LOADH = 0x28;
-const Byte OP_LOAD_H = 0x29;
-const Byte OP_STORE_H = 0x2A;
-const Byte OP_INCH = 0x2B;
-const Byte OP_DECH = 0x2C;
 std::size_t instruction_size(Byte op);
 void run(CPU& cpu, std::size_t limit = 100000);
-
-const Byte OP_CMP = 0x1A;
-const Byte OP_HLOW = 0x2D;
-const Byte OP_JMP = 0x30;
-const Byte OP_JZ = 0x31;
-const Byte OP_JNZ = 0x32;
-const Byte OP_JC = 0x33;
-const Byte OP_JNC = 0x34;
-
-const Byte OP_OUTS = 0x04;
-const Byte OP_CLS = 0x40;
-const Byte OP_PLOT = 0x41;
-const Byte OP_UNPLOT = 0x42;
-const Byte OP_SHOW = 0x43;

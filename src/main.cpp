@@ -14,6 +14,7 @@
 #include "display.hpp"
 #include "dump.hpp"
 #include "memory.hpp"
+#include "sprite.hpp"
 
 // Turn a word into a number. Accepts decimal (65) and hex (0x41).
 // Returns false if the word is not a number at all.
@@ -46,16 +47,19 @@ static void print_help() {
               << "  show | clear | frame    display operations\n"
               << "  plot <x> <y> | rowmin <y>\n"
               << "  sort <lo> <hi> | sortshow <lo> <hi>\n"
+              << "  sprite <i> <x> <y> <vx> <vy>  configure sprite 0..7\n"
+              << "  tick [n] | sprites           move or inspect sprites\n"
               << "  help              this list\n"
               << "  quit              leave\n";
 }
 
 int main() {
+    Sprite sprites[8]{};
     CPU cpu;
     Memory mem; // 4096 bytes, on the stack, zeroed by the {} in memory.hpp
 
     cpu.mem = &mem;
-    std::cout << "ember 0.5 - 4096 bytes of memory you can see. Type `help`.\n";
+    std::cout << "ember 0.6 - 4096 bytes of memory you can see. Type `help`.\n";
 
     std::string line;
     while (true) {
@@ -145,6 +149,33 @@ int main() {
                 std::cout << "invalid breakpoint\n";
             else
                 cpu.breakpoint = static_cast<int>(addr);
+        } else if (cmd == "sprite") {
+            std::string values[5];
+            long nums[5]{};
+            bool valid = true;
+            for (int i = 0; i < 5; ++i)
+                if (!(words >> values[i]) || !parse_number(values[i], nums[i]))
+                    valid = false;
+            if (!valid || nums[0] < 0 || nums[0] >= 8 || nums[1] < 0 || nums[1] >= 64 ||
+                nums[2] < 0 || nums[2] >= 32 || nums[3] < -127 || nums[3] > 127 || nums[4] < -127 ||
+                nums[4] > 127)
+                std::cout << "usage: sprite <0..7> <0..63> <0..31> <-127..127> <-127..127>\n";
+            else
+                sprites[nums[0]] = {static_cast<Byte>(nums[1]), static_cast<Byte>(nums[2]),
+                                    static_cast<std::int8_t>(nums[3]),
+                                    static_cast<std::int8_t>(nums[4]), true};
+        } else if (cmd == "sprites") {
+            dump_sprites(sprites, 8);
+        } else if (cmd == "tick") {
+            std::string token;
+            long count = 1;
+            if (words >> token)
+                if (!parse_number(token, count) || count < 1 || count > 1000) {
+                    std::cout << "usage: tick [1..1000]\n";
+                    continue;
+                }
+            for (long i = 0; i < count; ++i)
+                tick(mem, sprites, 8);
         } else if (cmd == "show") {
             show(mem);
         } else if (cmd == "clear") {

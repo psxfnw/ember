@@ -1,0 +1,8 @@
+sprite 0 62 1 1 -1
+sprite 1 1 30 -1 1
+sprites
+tick
+sprites
+tick
+sprites
+quit
