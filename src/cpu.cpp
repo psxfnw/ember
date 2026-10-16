@@ -14,6 +14,7 @@ std::size_t instruction_size(Byte op) {
     case Op::StoreA:
     case Op::StoreB:
     case Op::OutS:
+    case Op::Call:
     case Op::LoadH:
     case Op::Jmp:
     case Op::Jz:
@@ -104,6 +105,9 @@ void step(CPU& cpu) {
         break;
     case 1:
         switch (op) {
+        case Op::Mul:
+            cpu.a = alu_mul(cpu.a, cpu.b, cpu.f);
+            break;
         case Op::Cmp:
             alu_sub(cpu.a, cpu.b, cpu.f);
             break;
@@ -250,6 +254,66 @@ void step(CPU& cpu) {
             return;
         }
         break;
+    case 5: {
+        Byte value = 0;
+        std::uint16_t target = 0;
+        switch (op) {
+        case Op::PushA:
+        case Op::PushB:
+            if (!cpu.stack.push(*cpu.mem, op == Op::PushA ? cpu.a : cpu.b)) {
+                fail(cpu, "stack overflow");
+                return;
+            }
+            break;
+        case Op::PopA:
+        case Op::PopB:
+            if (!cpu.stack.pop(*cpu.mem, value)) {
+                fail(cpu, "stack underflow");
+                return;
+            }
+            if (op == Op::PopA)
+                cpu.a = value;
+            else
+                cpu.b = value;
+            break;
+        case Op::PushH:
+            if (!cpu.stack.push16(*cpu.mem, cpu.h)) {
+                fail(cpu, "stack overflow");
+                return;
+            }
+            break;
+        case Op::PopH:
+            if (!cpu.stack.pop16(*cpu.mem, target)) {
+                fail(cpu, "stack underflow");
+                return;
+            }
+            cpu.h = target;
+            break;
+        case Op::Call:
+            if (!address_ok(cpu, operand))
+                return;
+            if (!cpu.stack.push16(*cpu.mem, next_pc)) {
+                fail(cpu, "stack overflow");
+                return;
+            }
+            next_pc = operand;
+            break;
+        case Op::Ret:
+            if (!cpu.stack.peek16(*cpu.mem, target)) {
+                fail(cpu, "stack underflow");
+                return;
+            }
+            if (!address_ok(cpu, target))
+                return;
+            cpu.stack.pop16(*cpu.mem, target);
+            next_pc = target;
+            break;
+        default:
+            unknown(cpu, raw);
+            return;
+        }
+        break;
+    }
     case 6:
         switch (op) {
         case Op::Alloc:
@@ -279,7 +343,8 @@ void step(CPU& cpu) {
 void dump_regs(const CPU& cpu) {
     std::cout << "PC=" << cpu.pc << " A=" << unsigned(cpu.a) << " B=" << unsigned(cpu.b)
               << " H=" << cpu.h << " Z=" << cpu.f.z << " N=" << cpu.f.n << " C=" << cpu.f.c
-              << " halted=" << cpu.halted << " heap=" << cpu.heap_ptr << '\n';
+              << " halted=" << cpu.halted << " heap=" << cpu.heap_ptr << " SP=" << cpu.stack.sp()
+              << '\n';
 }
 
 void run(CPU& cpu, std::size_t limit) {

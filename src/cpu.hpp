@@ -1,5 +1,6 @@
 #pragma once
 #include "memory.hpp"
+#include "stack.hpp"
 #include <cstdint>
 
 enum class Op : std::uint8_t {
@@ -42,7 +43,16 @@ enum class Op : std::uint8_t {
     Plot = 0x41,
     Unplot = 0x42,
     Show = 0x43,
-    Alloc = 0x60
+    Alloc = 0x60,
+    Mul = 0x1B,
+    PushA = 0x50,
+    PopA = 0x51,
+    PushB = 0x52,
+    PopB = 0x53,
+    Call = 0x54,
+    Ret = 0x55,
+    PushH = 0x56,
+    PopH = 0x57
 };
 
 struct Flags {
@@ -52,6 +62,7 @@ struct Flags {
 };
 
 struct CPU {
+    Stack stack;
     Memory* mem = nullptr; // де лежить коробка. Що таке `*`, пояснює Lab 3;
                            // поки читайте як «процесор знає, де його пам'ять»
     std::uint16_t pc = 0;  // адреса НАСТУПНОЇ інструкції

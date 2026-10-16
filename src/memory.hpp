@@ -41,3 +41,5 @@ const std::size_t PORT_OUT = 0xB00, TICKS = 0xB01;
 bool sort_memory(Memory& mem, std::uint16_t lo, std::uint16_t hi, bool visualize = false);
 
 const std::size_t HEAP_LO = 0xC00, HEAP_HI = 0xEFF;
+
+const std::size_t STACK_LO = 0xF00, STACK_HI = 0xFFF;

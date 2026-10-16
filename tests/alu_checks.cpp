@@ -17,6 +17,8 @@ int main() {
             Byte v;
             v = alu_add(x, y, f);
             check(v, a + b, f, a + b > 255);
+            v = alu_mul(x, y, f);
+            check(v, a * b, f, a * b > 255);
             v = alu_sub(x, y, f);
             check(v, a - b, f, a < b);
             v = alu_and(x, y, f);

@@ -49,6 +49,7 @@ static void print_help() {
               << "  sort <lo> <hi> | sortshow <lo> <hi>\n"
               << "  sprite <i> <x> <y> <vx> <vy>  configure sprite 0..7\n"
               << "  tick [n] | sprites           move or inspect sprites\n"
+              << "  stack             SP and top stack bytes\n"
               << "  help              this list\n"
               << "  quit              leave\n";
 }
@@ -59,7 +60,7 @@ int main() {
     Memory mem; // 4096 bytes, on the stack, zeroed by the {} in memory.hpp
 
     cpu.mem = &mem;
-    std::cout << "ember 0.6 - 4096 bytes of memory you can see. Type `help`.\n";
+    std::cout << "ember 0.7 - 4096 bytes of memory you can see. Type `help`.\n";
 
     std::string line;
     while (true) {
@@ -128,6 +129,8 @@ int main() {
                 cpu.pc = static_cast<std::uint16_t>(value);
             else
                 std::cout << "unknown register: " << name << '\n';
+        } else if (cmd == "stack") {
+            dump_stack(cpu.stack, mem);
         } else if (cmd == "regs") {
             dump_regs(cpu);
         } else if (cmd == "get16") {
