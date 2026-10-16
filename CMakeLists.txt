@@ -1,22 +1,22 @@
 cmake_minimum_required(VERSION 3.16)
 project(ember CXX)
-
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-
-add_executable(ember
-    src/main.cpp
-    src/memory.cpp
-    src/dump.cpp
-)
-
-target_compile_options(ember PRIVATE -Wall -Wextra -Werror)
-
-# Sanitizers on Debug builds. They are extra checks compiled *into* the binary:
-# walk off an array and the program prints a report and aborts, instead of
-# quietly "working". They stay on all semester.
-if(CMAKE_BUILD_TYPE STREQUAL "Debug" AND NOT MSVC)
-    target_compile_options(ember PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer -g)
-    target_link_options(ember PRIVATE -fsanitize=address,undefined)
+set(EMBER_CORE src/memory.cpp src/dump.cpp src/alu.cpp src/cpu.cpp)
+add_executable(ember src/main.cpp ${EMBER_CORE})
+include(CTest)
+if(BUILD_TESTING)
+    add_executable(alu-check tests/alu_checks.cpp ${EMBER_CORE})
+    target_include_directories(alu-check PRIVATE src)
+    add_test(NAME alu-and-cpu COMMAND alu-check)
 endif()
+foreach(target ember alu-check)
+    if(TARGET ${target})
+        target_compile_options(${target} PRIVATE -Wall -Wextra -Werror)
+        if(CMAKE_BUILD_TYPE STREQUAL "Debug" AND NOT MSVC)
+            target_compile_options(${target} PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer -g)
+            target_link_options(${target} PRIVATE -fsanitize=address,undefined)
+        endif()
+    endif()
+endforeach()

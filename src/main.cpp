@@ -10,6 +10,7 @@
 #include <sstream>
 #include <string>
 
+#include "cpu.hpp"
 #include "dump.hpp"
 #include "memory.hpp"
 
@@ -33,14 +34,19 @@ static void print_help() {
               << "  set <addr> <val>  write one byte (dec or 0x hex)\n"
               << "  inc <addr>        increment a byte modulo 256\n"
               << "  set16 <addr> <n>  write a little-endian 16-bit number\n"
+              << "  reg <a|b> <n>     set an 8-bit register\n"
+              << "  regs              show CPU state\n"
+              << "  step              execute one instruction\n"
               << "  help              this list\n"
               << "  quit              leave\n";
 }
 
 int main() {
+    CPU cpu;
     Memory mem; // 4096 bytes, on the stack, zeroed by the {} in memory.hpp
 
-    std::cout << "ember 0.1 - 4096 bytes of memory you can see. Type `help`.\n";
+    cpu.mem = &mem;
+    std::cout << "ember 0.2 - 4096 bytes of memory you can see. Type `help`.\n";
 
     std::string line;
     while (true) {
@@ -92,6 +98,21 @@ int main() {
             } else if (!mem_set(mem, (std::size_t)addr, (Byte)value)) {
                 std::cout << "address " << addr << " is outside 0.." << MEM_SIZE - 1 << '\n';
             }
+        } else if (cmd == "reg") {
+            std::string name, v;
+            long value = 0;
+            if (!(words >> name >> v) || !parse_number(v, value) || value < 0 || value > 255)
+                std::cout << "usage: reg <a|b> <0..255>\n";
+            else if (name == "a")
+                cpu.a = static_cast<Byte>(value);
+            else if (name == "b")
+                cpu.b = static_cast<Byte>(value);
+            else
+                std::cout << "unknown register: " << name << '\n';
+        } else if (cmd == "regs") {
+            dump_regs(cpu);
+        } else if (cmd == "step") {
+            step(cpu);
         } else if (cmd == "inc") {
             std::string a;
             long addr = 0;

@@ -1,7 +1,7 @@
 # ember — віртуальний комп'ютер на C++17
 
 Навчальний проєкт курсу «Основи програмування»: від пам'яті на 4096 байтів до процесора й асемблера.
-Поточний етап — **Lab 01, Advanced**: перевірений доступ до пам'яті, hex/ASCII-дамп, чотири представлення байта, inc та set16.
+Поточний етап — **Lab 02, Advanced**: CPU, побітовий ALU, прапорці, step/regs і дзеркало стану. Lab 01: перевірений доступ до пам'яті, hex/ASCII-дамп, чотири представлення байта, inc та set16.
 
 ## Збірка й запуск
 
@@ -18,7 +18,7 @@ C++17, -Wall -Wextra -Werror; у Debug увімкнені -fsanitize=address,und
 Попередження та санітайзери не вимкнені.
 
 ~~~text
-ember 0.1 - 4096 bytes of memory you can see. Type `help`.
+ember 0.2 - 4096 bytes of memory you can see. Type `help`.
 ~~~
 | Команда | Дія |
 |---|---|
@@ -169,3 +169,137 @@ PASS lab-01: official checks, 4096 zero bytes, boundaries, atomic set16, all 256
 
 [Завдання Lab 01](https://github.com/rmalkevy/Programming-Practice-Projects/blob/main/courses/programming-fundamentals/lab-01-a-box-of-bytes.md).
 [ISA машини](https://github.com/rmalkevy/Programming-Practice-Projects/blob/main/courses/programming-fundamentals/ISA.uk.md).
+
+## Lab 02 — Біти не брешуть
+
+CPU, Flags і константи OP взяті з наданого заголовка завдання. Додані alu.cpp/hpp, cpu.cpp/hpp,
+команди reg a/b, regs та step. CPU вказує на ту саму Memory, яку змінює set.
+PC містить адресу наступної інструкції, усі реалізовані тут опкоди займають один байт.
+Після HALT PC уже посунутий; наступні step відмовляють без змін.
+
+### Підтримувані інструкції
+
+| Опкод | Мнемоніка | Байти | Прапорці |
+|---|---|---:|---|
+| 00 | HALT | 1 | — |
+| 01 | NOP | 1 | — |
+| 10 | ADD A,B | 1 | Z,N,C |
+| 11 | SUB A,B | 1 | Z,N,C; C=позика |
+| 12 / 13 / 14 | AND / OR / XOR A,B | 1 | Z,N; C=0 |
+| 15 | NOT A | 1 | Z,N; C=0 |
+| 16 / 17 | SHL / SHR A | 1 | Z,N,C=біт за краєм |
+| 18 / 19 | INC / DEC A | 1 | Z,N; C збережений |
+
+Інші інструкції ще не реалізовані; як дозволено в Lab 02, невідомий байт поки проходить як NOP.
+У наступних етапах це стане діагностикою.
+
+### Побітовий ADD і прапорці
+
+Справжній alu_add проходить біти 0–7: s = a_bit XOR b_bit XOR carry.
+Наступне перенесення — хоча б дві одиниці серед трьох входів.
+Результат збирається OR з 1u << bit. Звичайне додавання лишене тільки в Debug assert як незалежна перевірка.
+Z означає результат 0, N — встановлений біт 7. N не є прапорцем signed overflow.
+
+200 + 100 = 300 = 256 + 44: A=44, Z=0, N=0, C=1.
+Другий приклад: 3−5 = −2, у байті 254 (0xfe); Z=0, N=1, C=1, бо була позика.
+
+~~~text
+halted
+PASS: 65536 operand pairs, all unary values, preserved carry, CPU/HALT/bounds
+ADD 200 100: result=44 Z=0 N=0 C=1
+SHL 128: result=0 Z=1 N=0 C=1
+AND 7 1: result=1 Z=0 N=0 C=0
+~~~
+
+~~~text
+ember 0.2 - 4096 bytes of memory you can see. Type `help`.
+PC=1 A=254 B=5 Z=0 N=1 C=1 halted=0
+~~~
+### Трасування
+
+Перед запуском reg a 64; у пам'яті 16 16 18 00 (SHL, SHL, INC, HALT).
+Фактичний вивід regs та get 2818:
+
+~~~text
+ember 0.2 - 4096 bytes of memory you can see. Type `help`.
+PC=0 A=64 B=0 Z=0 N=0 C=0 halted=0
+PC=1 A=128 B=0 Z=0 N=1 C=0 halted=0
+PC=2 A=0 B=0 Z=1 N=0 C=1 halted=0
+PC=3 A=1 B=0 Z=0 N=0 C=1 halted=0
+4  0x04  0b00000100  '.'
+PC=4 A=1 B=0 Z=0 N=0 C=1 halted=1
+~~~
+| PC до | Опкод | PC після | A | Z | N | C |
+|---:|---|---:|---:|---:|---:|---:|
+| 0 | 16 SHL | 1 | 128 | 0 | 1 | 0 |
+| 1 | 16 SHL | 2 | 0 | 1 | 0 | 1 |
+| 2 | 18 INC | 3 | 1 | 0 | 0 | 1 |
+| 3 | 00 HALT | 4 | 1 | 0 | 0 | 1 |
+
+Друга SHL викинула старший біт; INC змінив Z/N, але зберіг C.
+
+### Розбір і розширення
+
+decode використовує group=(op >> 4) & 0x0f та index=op & 0x0f.
+Група керує зовнішнім switch, всередині вибирається конкретна дія.
+
+| Адреса розширення | Розмір | Біти | Поведінка |
+|---|---:|---|---|
+| 0xB02 FLAG_STATUS | 1 | bit0=Z, bit1=N, bit2=C | після кожного успішного step дзеркалить прапорці |
+
+Це розширення пам'яті, нових опкодів немає. Адреса 0xB02 вибрана, щоб не займати
+необов'язкові PORT_OUT=0xB00 і TICKS=0xB01 з ISA. Ручний set у дзеркало не змінює Flags;
+наступний step відновлює дзеркало. Гостьове LOAD для читання з'явиться в Lab 03.
+
+### Notes і пріоритет операцій
+
+Реальні досліди §§1–4: hex/біти, доповняльний код та integer promotion, три поля з одного байта,
+явне порівняння неправильного й правильного групування:
+
+~~~text
+a3
+10100011
+-5 -6 250
+11 2 1
+0 1
+~~~
+Оригінальна помилка x & 1 == 0 з -Werror не компілюється; попередження не вимикалось:
+
+~~~text
+/home/psxfnw/pf-private/ember/experiments/lab-02/precedence.cpp: In function ‘int main()’:
+/home/psxfnw/pf-private/ember/experiments/lab-02/precedence.cpp:2:40: error: suggest parentheses around comparison in operand of ‘&’ [-Werror=parentheses]
+    2 | int main(){int x=2;std::cout << (x & 1 == 0);}
+      |                                      ~~^~~~
+cc1plus: all warnings being treated as errors
+~~~
+Для запуску обох значень неправильне групування записано явно як x & (1==0).
+Виправлення для перевірки парності — (x & 1)==0. Перевірка побітового додавання Notes §5
+використовує той самий справжній ALU, результати наведені вище.
+
+### Перевірки Lab 02
+
+~~~bash
+cmake --build build
+ctest --test-dir build --output-on-failure
+./build/ember < checks/lab-02.txt
+python3 tests/check_cli.py build/ember
+~~~
+
+~~~text
+Test project /home/psxfnw/pf/ember/build
+    Start 1: alu-and-cpu
+1/1 Test #1: alu-and-cpu ......................   Passed    0.02 sec
+
+100% tests passed, 0 tests failed out of 1
+
+Total Test time (real) =   0.02 sec
+~~~
+
+~~~text
+ember 0.2 - 4096 bytes of memory you can see. Type `help`.
+PC=0 A=200 B=100 Z=0 N=0 C=0 halted=0
+PC=1 A=44 B=100 Z=0 N=0 C=1 halted=0
+halted
+PC=2 A=44 B=100 Z=0 N=0 C=1 halted=1
+~~~
+Додаткова C++-перевірка охопила всі 65536 пар для ADD/SUB/AND/OR/XOR, всі байти унарних операцій, обидва початкові C для INC/DEC, зупинку HALT та межі. Регресія Lab 01 пройшла. Debug ASan+UBSan без діагностики у готовому коді.
